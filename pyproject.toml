@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "labdb"
+version = "0.1.0"
+description = "MongoDB experiment management tool"
+authors = [
+    {name = "Experiment Author", email = "author@example.com"}
+]
+requires-python = ">=3.8"
+dependencies = [
+    "jsonschema==4.23.0",
+    "prompt_toolkit==3.0.50",
+    "Pygments==2.19.1",
+    "pymongo==4.11.3",
+    "PyYAML==6.0.2",
+    "rich==13.9.4"
+]
+
+[project.scripts]
+labdb = "labdb.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["labdb"]
