@@ -65,9 +65,7 @@ def edit(json_data, title="JSON Editor", description=None):
             # Show validation error message at the bottom
             if hasattr(e, "problem_mark"):
                 mark = e.problem_mark
-                error_msg = (
-                    f"Invalid syntax: {e.problem} at line {mark.line+1}, column {mark.column+1}"
-                )
+                error_msg = f"Invalid syntax: {e.problem} at line {mark.line+1}, column {mark.column+1}"
             else:
                 error_msg = f"Invalid syntax: {str(e)}"
             # Don't exit - just show the error

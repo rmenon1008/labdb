@@ -1,114 +1,66 @@
-import sys
-import json
-
-import numpy as np
-
-from labdb.array_utils import deserialize_numpy_containers, serialize_numpy_containers
-from labdb.cli_formatting import (
-    display_config,
-    display_table,
-    error,
-    get_input,
-    info,
-    success,
-    warning,
-)
+from labdb.database import Database
+from labdb.cli_formatting import info, key_value
 from labdb.cli_json_editor import edit
-from labdb.config import load_config
-from labdb.database import ConfigError, DatabaseError, check_db, get_db
-from labdb.experiment import Experiment, ExperimentError, NoExperimentsError
-from labdb.session import NoSessionsError, Session, SessionError
-
-
-def is_serializable(obj):
-    """Check if an object is JSON serializable"""
-    try:
-        json.dumps(obj)
-        return True
-    except (TypeError, ValueError):
-        return False
-
-
-class LoggerError(Exception):
-    pass
-
+from labdb.serialization import serialize, deserialize
+from pymongo.cursor import Cursor
 
 class ExperimentLogger:
-    def __init__(self, experiment_id=None, session_id=None, user_details=True):
-        self.db = get_db()
-        self.config = load_config()
-        if not self.config:
-            raise ConfigError("No configuration found")
-        
-        if experiment_id:
-            # Get existing experiment
-            self.experiment = Experiment.get(self.db, experiment_id)
-            self.session = Session.get(self.db, self.experiment["session_id"])
-            info(f"Using existing experiment: {experiment_id}")
-        else:
-            # Create new experiment
-            self.session = self._get_session(session_id)
-            info(f"Using session: {self.session['name']} ({self.session['_id']})")
-            self.experiment = self._create_experiment(user_details)
-            info(f"Created experiment: {self.experiment.id}")
+    def __init__(self, session_id: str = None) -> None:
+        self.db = Database()
+        self.sessions = self.db.sessions
+        self.experiments = self.db.experiments
 
-    def _create_experiment(self, user_details):
-        outputs = {}
-        if user_details:
-            outputs = edit(
-                {},
-                title=f"New experiment: {self.session['name']} ({self.session['_id']})",
-                description=f"Session: {self.session['name']} ({self.session['_id']})",
-            )
-        return Experiment(self.db, self.session["_id"], outputs)
-
-    def _get_session(self, session_id):
         if session_id:
-            return Session.get(self.db, session_id)
+            self.session = self.db.get_session(session_id, projection={"name": 1})
         else:
-            return Session.get_most_recent(self.db)
+            self.session = self.db.get_most_recent_session()
+            key_value(
+                "No session ID provided, using most recent session",
+                f"{self.session['name']} ({self.session['_id']})",
+            )
+        self.current_experiment_id = None
 
-    def set(self, key, value):
-        """Set a value in the experiment's outputs"""
-        storage_type = self.config.get("large_file_storage", "none")
-        serialized_value = serialize_numpy_containers(value, self.db, storage_type=storage_type)
-        Experiment.merge_output(self.db, self.experiment["_id"], {key: serialized_value})
+    def new_experiment(self, interactive: bool = True) -> str:
+        if interactive:
+            notes = edit({}, "New experiment notes", f"Session {self.session['name']} ({self.session['_id']})")
+        else:
+            notes = {}
+        
+        self.current_experiment_id = self.db.create_experiment(self.session["_id"], {}, notes)
+        print(f"Started experiment {self.current_experiment_id}")
+        return self.current_experiment_id
 
-    def get(self, key, default=None):
-        """Get a value from the experiment's outputs"""
-        if "outputs" not in self.experiment:
-            return default
-        value = self.experiment["outputs"].get(key, default)
-        if value is not None and isinstance(value, dict) and value.get("__numpy_array__"):
-            return deserialize_numpy_containers(value, self.db)
-        return value
+    def log_data(self, key: str, value: any) -> None:
+        if not self.current_experiment_id:
+            raise Exception("No experiment started. Use `new_experiment()` first.")
+        self.db.experiment_log_data(self.current_experiment_id, key, serialize(value, self.db.db, self.db.config["large_file_storage"]))
+
+    def log_note(self, key: str, value: any) -> None:
+        if not self.current_experiment_id:
+            raise Exception("No experiment started. Use `new_experiment()` first.")
+        self.db.experiment_log_note(self.current_experiment_id, key, value)
+
 
 class ExperimentQuery:
-    def __init__(self):
-        self.db = get_db()
-        self.config = load_config()
-
-    def _get_session(self, session_id):
-        if session_id:
-            return Session.get(self.db, session_id)
-        else:
-            return Session.get_most_recent(self.db)
-        
-    def get_all(self, query=None, projection=None):
-        cursor = self.db.get_collection("experiments").find(query or {}, projection)
-        
+    def __init__(self) -> None:
+        self.db = Database()
+        self.sessions = self.db.sessions
+        self.experiments = self.db.experiments
+    
+    def get_experiments(self, query: dict = {}, projection: dict = {}):
+        cursor = self.experiments.find(query, projection)
         for doc in cursor:
-            if "outputs" in doc:
-                doc["outputs"] = deserialize_numpy_containers(doc["outputs"], self.db)
-            yield doc
+            yield deserialize(doc, self.db.db)
 
-    def get_all_from_session(self, session=None, query=None, projection=None):
-        session = self._get_session(session)
-        combined_query = {"session_id": session["_id"]}
-        combined_query.update(query or {})
-        cursor = self.db.get_collection("experiments").find(combined_query, projection)
-        
+    def get_experiments_from_session(self, session_id: str, query: dict = {}, projection: dict = {}):
+        combined_query = {"session_id": session_id}
+        combined_query.update(query)
+        cursor = self.experiments.find(combined_query, projection)
         for doc in cursor:
-            if "outputs" in doc:
-                doc["outputs"] = deserialize_numpy_containers(doc["outputs"], self.db)
-            yield doc
+            yield deserialize(doc, self.db.db)
+    
+    def experiment_log_data(self, experiment_id: str, key: str, value: any) -> None:
+        self.db.experiment_log_data(experiment_id, key, value)
+
+    def experiment_log_note(self, experiment_id: str, key: str, value: any) -> None:
+        self.db.experiment_log_note(experiment_id, key, value)

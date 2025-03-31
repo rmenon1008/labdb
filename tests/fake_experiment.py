@@ -12,28 +12,17 @@ profiler = cProfile.Profile()
 profiler.enable()
 
 # Create a new experiment
-logger = ExperimentLogger(ask_for_outputs=False, session_id="1al4sf42")
-experiment_id = logger.experiment["_id"]
+logger = ExperimentLogger(session_id="ssytvfsvc3")
 
-# Set some values
-t = np.int32
-size = 100_000_000
-numpy_array = np.random.randint(np.iinfo(t).min, np.iinfo(t).max, size=size, dtype=t)
-logger.set("test", numpy_array)
-logger.set("notes", "This is a test experiment")
+for i in range(10):
+    experiment_id = logger.new_experiment(interactive=False)
 
-# Get values back
-array_value = logger.get("test")
-notes = logger.get("notes")
-print(f"Retrieved notes: {notes}")
-
-# Edit the experiment
-logger.edit()
-
-# Create a new logger instance to access the same experiment
-logger2 = ExperimentLogger(experiment_id=experiment_id)
-array_value2 = logger2.get("test")
-print(f"Retrieved array from new logger: {array_value2}")
+    # Set some values
+    t = np.int32
+    size = 10_000_000
+    numpy_array = np.random.randint(np.iinfo(t).min, np.iinfo(t).max, size=size, dtype=t)
+    logger.log_data("test", numpy_array)
+    logger.log_note("notes", "This is a test experiment")
 
 # Disable profiler and print stats
 profiler.disable()

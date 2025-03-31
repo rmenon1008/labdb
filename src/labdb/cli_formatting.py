@@ -10,32 +10,35 @@ console = Console()
 
 
 def error(message):
-    """Display an error message in red with an X emoji"""
-    console.print(f"\U0000274C [bold red]{message}[/bold red]")
+    console.print(f"[bold red]{message}[/bold red]")
 
 
 def success(message):
-    """Display a success message in green with a checkmark emoji"""
-    console.print(f"\U00002705 [green]{message}[/green]")
-
-
-def info(message):
-    """Display an info message in blue with an info emoji"""
-    console.print(f"\U00002139\U0000FE0F  [blue]{message}[/blue]")
+    console.print(f"[green]{message}[/green]")
 
 
 def warning(message):
-    """Display a warning message in yellow with a warning emoji"""
-    console.print(f"\U0001FAD7  [yellow]{message}[/yellow]")
+    console.print(f"[yellow]{message}[/yellow]")
+
+
+def info(message):
+    console.print(message)
+
+
+def key_value(key, value):
+    console.print(f"{key}: [blue]{value}[/blue]")
 
 
 def get_input(prompt_text, default=None):
-    """Get user input with a nicely formatted prompt"""
-    return Prompt.ask(f"[yellow]{prompt_text}[/yellow]", default=default)
+    if default is not None:
+        return (
+            Prompt.ask(f"{prompt_text} [blue]\[default: {default}][/blue]") or default
+        )
+    else:
+        return Prompt.ask(f"{prompt_text}")
 
 
 def display_table(headers, rows):
-    """Display data in a nicely formatted table"""
     table = Table(show_header=True, box=ROUNDED)
 
     for header in headers:
@@ -45,14 +48,3 @@ def display_table(headers, rows):
         table.add_row(*[str(item) for item in row])
 
     console.print(table)
-
-
-def display_config(config_path, config_data):
-    """Display configuration data in a panel"""
-    content = "\n".join([f"{key}: {value}" for key, value in config_data.items()])
-    panel = Panel(
-        content,
-        title=f"Config file: {config_path}",
-        border_style="blue",
-    )
-    console.print(panel)

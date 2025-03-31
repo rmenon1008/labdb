@@ -11,21 +11,21 @@ from labdb.api import ExperimentQuery
 profiler = cProfile.Profile()
 profiler.enable()
 
-
 query = ExperimentQuery()
 
-# Get all experiments from the most recent session
-experiments = query.get_all_from_session("1al4sf42")
+# Get all experiments from the session
+experiments = query.get_experiments_from_session("ssytvfsvc3")
 
 # Access the numpy arrays from each experiment
 for exp in experiments:
     start_time = time.time()
 
-    if "outputs" in exp and "test" in exp["outputs"]:
-        numpy_array = exp["outputs"]["test"]
+    if "data" in exp and "test" in exp["data"]:
+        numpy_array = exp["data"]["test"]
         # Do something with the array to ensure it's loaded
         array_sum = np.sum(numpy_array)
         print(f"Experiment {exp['_id']}: Array sum = {array_sum}")
+        query.experiment_log_data(exp["_id"], "sum", int(array_sum))
 
     elapsed = time.time() - start_time
     print(f"Iteration completed in {elapsed:.2f} seconds")

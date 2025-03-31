@@ -2,9 +2,7 @@ import argparse
 import sys
 
 from labdb.cli_commands import (
-    cli_connection_check,
-    cli_connection_setup,
-    cli_connection_show,
+    cli_config_setup,
     cli_experiment_create,
     cli_experiment_delete,
     cli_experiment_edit,
@@ -13,6 +11,8 @@ from labdb.cli_commands import (
     cli_session_delete,
     cli_session_edit,
     cli_session_list,
+    cli_setup_check,
+    cli_setup_show,
 )
 from labdb.cli_formatting import error
 
@@ -35,50 +35,26 @@ def main():
     parser = argparse.ArgumentParser(description="MongoDB experiment tool")
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
-    # Connection command
-    connection_parser = subparsers.add_parser("connection", help="Connection management")
-    connection_subs = connection_parser.add_subparsers(dest="subcommand")
+    # Config command
+    config_parser = subparsers.add_parser("config", help="Configuration management")
+    config_subs = config_parser.add_subparsers(dest="subcommand")
     add_command(
-        connection_subs,
+        config_subs,
         "setup",
-        cli_connection_setup,
-        "Setup a new MongoDB connection with connection string and database name",
+        cli_config_setup,
+        "Setup a new MongoDB connection with connection string, database name, and storage options",
     )
     add_command(
-        connection_subs,
+        config_subs,
         "check",
-        cli_connection_check,
-        "Verify the MongoDB connection is working properly",
+        cli_setup_check,
+        "Verify the MongoDB connection is working properly with the current configuration",
     )
     add_command(
-        connection_subs,
+        config_subs,
         "show",
-        cli_connection_show,
-        "Display the current MongoDB connection settings including URI and database",
-    )
-
-    # Connection command alias
-    conn_parser = subparsers.add_parser(
-        "conn", help="Connection management (alias for 'connection')"
-    )
-    conn_subs = conn_parser.add_subparsers(dest="subcommand")
-    add_command(
-        conn_subs,
-        "setup",
-        cli_connection_setup,
-        "Setup a new MongoDB connection with connection string and database name",
-    )
-    add_command(
-        conn_subs,
-        "check",
-        cli_connection_check,
-        "Verify the MongoDB connection is working properly",
-    )
-    add_command(
-        conn_subs,
-        "show",
-        cli_connection_show,
-        "Display the current MongoDB connection settings including URI and database",
+        cli_setup_show,
+        "Display the current MongoDB connection settings including URI, database, and storage options",
     )
 
     # Session command - singular form
@@ -88,71 +64,56 @@ def main():
         session_subs,
         "list",
         cli_session_list,
-        "List all available sessions with their IDs and names",
+        "List all available sessions with their IDs, names, creation dates, and experiment counts",
     )
     add_command(
         session_subs,
         "delete",
         cli_session_delete,
-        "Delete a session by its ID, including all associated experiments",
+        "Delete a session by its ID, including all associated experiments and their data",
         **{"id": {"help": "Session ID to delete"}},
     )
-    add_command(session_subs, "create", cli_session_create, "Create a new session with metadata")
+    add_command(
+        session_subs, 
+        "create", 
+        cli_session_create, 
+        "Create a new session with a name and optional description in the JSON editor",
+    )
     add_command(
         session_subs,
         "edit",
         cli_session_edit,
-        "Edit an existing session's properties by ID",
-        **{"id": {"help": "Session ID to edit", "nargs": "?"}},
-    )
-
-    # Session command alias
-    sess_parser = subparsers.add_parser("sess", help="Session management (alias for 'session')")
-    sess_subs = sess_parser.add_subparsers(dest="subcommand")
-    add_command(
-        sess_subs, "list", cli_session_list, "List all available sessions with their IDs and names"
-    )
-    add_command(
-        sess_subs,
-        "delete",
-        cli_session_delete,
-        "Delete a session by its ID, including all associated experiments",
-        **{"id": {"help": "Session ID to delete"}},
-    )
-    add_command(sess_subs, "create", cli_session_create, "Create a new session with metadata")
-    add_command(
-        sess_subs,
-        "edit",
-        cli_session_edit,
-        "Edit an existing session's properties by ID",
-        **{"id": {"help": "Session ID to edit", "nargs": "?"}},
+        "Edit an existing session's properties by ID using the JSON editor (uses most recent session if ID not provided)",
+        **{"id": {"help": "Session ID to edit (optional, defaults to most recent)", "nargs": "?"}},
     )
 
     # Experiment command - singular form
-    experiment_parser = subparsers.add_parser("experiment", help="Experiment management")
+    experiment_parser = subparsers.add_parser(
+        "experiment", help="Experiment management"
+    )
     experiment_subs = experiment_parser.add_subparsers(dest="subcommand")
     add_command(
         experiment_subs,
         "list",
         cli_experiment_list,
-        "List all experiments, optionally filtered by session ID",
-        **{"session_id": {"help": "Session ID to list experiments for", "nargs": "?"}},
+        "List all experiments with creation dates, IDs, and notes, optionally filtered by session ID",
+        **{"session_id": {"help": "Optional session ID to list only experiments for that session", "nargs": "?"}},
     )
     add_command(
         experiment_subs,
         "delete",
         cli_experiment_delete,
-        "Delete an experiment by its ID, including all related data",
+        "Delete an experiment by its ID, including all related data and measurements",
         **{"id": {"help": "Experiment ID to delete"}},
     )
     add_command(
         experiment_subs,
         "create",
         cli_experiment_create,
-        "Create a new experiment with parameters in an existing session",
+        "Create a new experiment with notes in an existing session using the JSON editor",
         **{
             "session_id": {
-                "help": "Session ID to create the experiment in",
+                "help": "Optional session ID to create the experiment in (defaults to most recent session)",
                 "nargs": "?",
             }
         },
@@ -161,61 +122,25 @@ def main():
         experiment_subs,
         "edit",
         cli_experiment_edit,
-        "Edit an existing experiment's properties by ID",
-        **{"id": {"help": "Experiment ID to edit", "nargs": "?"}},
-    )
-
-    # Experiment command alias
-    exp_parser = subparsers.add_parser("exp", help="Experiment management (alias for 'experiment')")
-    exp_subs = exp_parser.add_subparsers(dest="subcommand")
-    add_command(
-        exp_subs,
-        "list",
-        cli_experiment_list,
-        "List all experiments, optionally filtered by session ID",
-        **{"session_id": {"help": "Session ID to list experiments for", "nargs": "?"}},
-    )
-    add_command(
-        exp_subs,
-        "delete",
-        cli_experiment_delete,
-        "Delete an experiment by its ID, including all related data",
-        **{"id": {"help": "Experiment ID to delete"}},
-    )
-    add_command(
-        exp_subs,
-        "create",
-        cli_experiment_create,
-        "Create a new experiment with parameters in an existing session",
-        **{
-            "session_id": {
-                "help": "Session ID to create the experiment in",
-                "nargs": "?",
-            }
-        },
-    )
-    add_command(
-        exp_subs,
-        "edit",
-        cli_experiment_edit,
-        "Edit an existing experiment's properties by ID",
-        **{"id": {"help": "Experiment ID to edit", "nargs": "?"}},
+        "Edit an existing experiment's notes by ID using the JSON editor (uses most recent experiment if ID not provided)",
+        **{"id": {"help": "Experiment ID to edit (optional, defaults to most recent)", "nargs": "?"}},
     )
 
     args = parser.parse_args()
 
     # Handle case when a command is provided but no subcommand
     if args.command and not hasattr(args, "func"):
-        if args.command in ["connection", "conn"]:
-            connection_parser.print_help()
-        elif args.command in ["session", "sessions", "sess"]:
+        if args.command in ["config"]:
+            config_parser.print_help()
+        elif args.command in ["session"]:
             session_parser.print_help()
-        elif args.command in ["experiment", "experiments", "exp"]:
+        elif args.command in ["experiment"]:
             experiment_parser.print_help()
-        print(f"\nError: A subcommand is required for '{args.command}'", file=sys.stderr)
+        print(
+            f"\nError: A subcommand is required for '{args.command}'", file=sys.stderr
+        )
         sys.exit(1)
 
-    # Handle case when no command is provided
     if not hasattr(args, "func"):
         parser.print_help()
         sys.exit(1)

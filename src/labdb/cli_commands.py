@@ -1,235 +1,254 @@
-import sys
+import functools
 import json
+import sys
+import traceback
 
 from labdb.cli_formatting import (
-    display_config,
     display_table,
     error,
     get_input,
     info,
+    key_value,
     success,
     warning,
 )
 from labdb.cli_json_editor import edit
-from labdb.config import CONFIG_FILE, load_config, save_config
-from labdb.database import ConfigError, DatabaseError, check_db, get_db
-from labdb.experiment import Experiment, ExperimentError, NoExperimentsError
-from labdb.session import NoSessionsError, Session, SessionError
+from labdb.config import CONFIG_FILE, CONFIG_SCHEMA, load_config, save_config
+from labdb.database import Database
+from labdb.utils import date_to_relative_time
 
 
-def is_serializable(obj):
-    """Check if an object is JSON serializable"""
+def cli_operation(func):
+    """Decorator for CLI commands that handles the common try-except-else pattern"""
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            result = func(*args, **kwargs)
+            return result
+        except Exception as e:
+            traceback.print_exc()
+            error(str(e))
+            sys.exit(1)
+
+    return wrapper
+
+
+def cli_config_setup(args):
     try:
-        json.dumps(obj)
-        return True
-    except (TypeError, ValueError):
-        return False
+        old_config = load_config() or {}
+    except Exception:
+        old_config = {}
 
-
-def cli_connection_setup(args):
-    # Load existing config if it exists
-    existing_config = load_config() or {}
-    
-    # Create default config with existing values or empty strings
-    default_config = {
-        "conn_string": existing_config.get("conn_string", ""),
-        "db_name": existing_config.get("db_name", ""),
-        "large_file_storage": existing_config.get("large_file_storage", "none"),
-        "large_file_storage_path": existing_config.get("large_file_storage_path", ""),
-        "compress_arrays": existing_config.get("compress_arrays", False),
+    defaults = {
+        "conn_string": "localhost:27017",
+        "db_name": "labdb",
+        "large_file_storage": "gridfs",
+        "local_file_storage_path": "",
+        "compress_arrays": False,
     }
-    
-    # Edit the config
-    config = edit(
-        default_config,
-        title="MongoDB Connection Setup",
-        description="Edit the configuration below. All fields are required except large_file_storage_path (only needed for local storage)."
-    )
+
+    for key in defaults:
+        if key in old_config:
+            defaults[key] = old_config[key]
+
+    new_config = {}
+
+    for prop, details in CONFIG_SCHEMA["properties"].items():
+        description = details.get("description", prop)
+        prompt = description
+
+        if "enum" in details:
+            prompt += f" ({'/'.join(details['enum'])})"
+
+        if details.get("type") == "boolean":
+            prompt += " (y/n)"
+            input_val = get_input(prompt, "y" if defaults[prop] == True else "n")
+            new_config[prop] = input_val == "y"
+        else:
+            new_config[prop] = get_input(prompt, defaults[prop])
 
     try:
-        check_db(config)
-        save_config(config)
-        success("Connection setup completed successfully")
-    except ConnectionError as e:
+        save_config(new_config)
+        db = Database()
+    except Exception as e:
+        save_config(old_config)
+        error("Configuration setup failed")
         error(str(e))
         sys.exit(1)
+    else:
+        success("Configuration updated successfully")
 
 
-def cli_connection_check(args):
-    try:
-        config = load_config()
-        check_db(config)
-        success("Connection is working properly")
-    except (ConfigError, ConnectionError) as e:
-        error(str(e))
-        sys.exit(1)
+@cli_operation
+def cli_setup_check(args):
+    db = Database()
+    success("MongoDB connection is working properly")
 
 
-def cli_connection_show(args):
-    try:
-        config = load_config()
-        if not config:
-            raise ConfigError("No configuration found")
-        display_config(CONFIG_FILE, config)
-    except ConfigError as e:
-        error(str(e))
-        sys.exit(1)
+@cli_operation
+def cli_setup_show(args):
+    info(f"Configuration stored in [blue]{CONFIG_FILE}[/blue]")
+    config = load_config()
+    for key, value in config.items():
+        key_value(key, value)
 
 
 def cli_session_list(args):
-    try:
-        db = get_db()
-        sessions = list(Session.list(db, 11, ["_id", "name", "created_at"]))
-        if not sessions or len(sessions) == 0:
-            warning("No sessions found")
-            return
+    db = Database()
+    sessions = list(
+        db.sessions.find({}, {"_id": 1, "name": 1, "created_at": 1})
+        .sort("created_at", -1)
+        .limit(11)
+    )
+    if not sessions:
+        warning("No sessions found")
+        return
+    headers = ["Created at", "ID", "Name", "Experiments"]
+    rows = [
+        [
+            date_to_relative_time(sess["created_at"]),
+            sess["_id"],
+            sess["name"],
+            db.experiments.count_documents({"session_id": sess["_id"]}),
+        ]
+        for sess in sessions[:10]
+    ]
+    if len(sessions) > 10:
+        rows.append(["...", "...", "...", "..."])
+    display_table(headers, rows)
 
-        headers = ["Created at", "ID", "Name"]
-        rows = [[sess["created_at"], sess["_id"], sess["name"]] for sess in sessions[:10]]
 
-        if len(sessions) > 10:
-            rows.append(["...", "...", "..."])
-
-        display_table(headers, rows)
-
-    except DatabaseError as e:
-        error(str(e))
-        sys.exit(1)
-
-
+@cli_operation
 def cli_session_delete(args):
-    try:
-        db = get_db()
-        Session.delete(db, args.id)
-        success(f"Session '{args.id}' deleted successfully")
-    except (DatabaseError, SessionError) as e:
-        error(str(e))
-        sys.exit(1)
-
-
-def cli_session_create(args):
-    try:
-        db = get_db()
-        name = get_input("Enter session name")
-        details = edit({"description": ""}, title=f"New session: {name}")
-        Session(db, name, details)
-        success(f"Session '{name}' created successfully")
-    except DatabaseError as e:
-        error(str(e))
-        sys.exit(1)
-
-
-def cli_session_edit(args):
-    try:
-        db = get_db()
-
-        if not args.id:
-            sess = Session.get_most_recent(db)
-        else:
-            sess = Session.get(db, args.id)
-
-        details = edit(
-            sess["details"],
-            title=f"Edit session: {sess['name']} ({sess['_id']})",
-        )
-        Session.replace_details(db, sess["_id"], details)
-        success(f"Session {sess['name']} ({sess['_id']}) updated successfully")
-    except (DatabaseError, SessionError) as e:
-        error(str(e))
-        sys.exit(1)
-
-
-def cli_experiment_list(args):
-    try:
-        db = get_db()
-        if not args.session_id:
-            sess = Session.get_most_recent(db)
-        else:
-            sess = Session.get(db, args.session_id)
-
-        info(f"Experiments for session: {sess['name']} ({sess['_id']})")
-        experiments = list(Experiment.list(db, sess["_id"], 11, ["_id", "created_at", "outputs"]))
-        if not experiments:
-            warning("No experiments found")
+    db = Database()
+    experiment_count = db.experiments.count_documents({"session_id": args.id})
+    if experiment_count > 0:
+        warning(f"Session {args.id} has {experiment_count} experiments")
+        if get_input("Delete session and all associated experiments? (y/n)") != "y":
             return
-
-        headers = ["Created at", "ID", "Outputs"]
-        rows = [[exp["created_at"], exp["_id"], exp["outputs"]] for exp in experiments[:10]]
-
-        if len(experiments) > 10:
-            rows.append(["...", "...", "..."])
-
-        display_table(headers, rows)
-
-    except (DatabaseError, SessionError, ExperimentError) as e:
-        error(str(e))
-        sys.exit(1)
+    db.delete_session_with_cleanup(args.id)
+    success(f"Session {args.id} deleted successfully")
 
 
-def cli_experiment_delete(args):
-    try:
-        db = get_db()
-        Experiment.delete(db, args.id)
-        success(f"Experiment '{args.id}' deleted successfully")
-    except (DatabaseError, ExperimentError) as e:
-        error(str(e))
-        sys.exit(1)
+@cli_operation
+def cli_session_create(args):
+    db = Database()
+    name = get_input("Enter session name")
+    details = edit({"description": ""}, title=f"New session: {name}")
+    db.create_session(name, details)
+    success(f"Session '{name}' created successfully")
 
 
-def cli_experiment_create(args):
-    try:
-        db = get_db()
+@cli_operation
+def cli_session_edit(args):
+    db = Database()
+    proj = {"name": 1, "details": 1}
+    if not args.id:
+        sess = db.get_most_recent_session(projection=proj)
+    else:
+        sess = db.get_session(args.id, projection=proj)
+
+    details = edit(
+        sess["details"],
+        title=f"Edit session: {sess['name']} ({sess['_id']})",
+    )
+    db.update_session_details(sess["_id"], details)
+    success(f"Session {sess['name']} ({sess['_id']}) updated successfully")
+
+
+@cli_operation
+def cli_experiment_list(args):
+    db = Database()
+
+    if args.session_id:
+        sess = db.get_session(args.session_id)
+        info(f"Experiments for session: {sess['name']} ({sess['_id']})")
+        query = {"session_id": sess["_id"]}
+    else:
+        info("All experiments")
+        query = {}
+
+    experiments = list(
+        db.experiments.find(
+            query,
+            {"_id": 1, "created_at": 1, "notes": 1, "session_id": 1},
+        )
+        .sort("created_at", -1)
+        .limit(11)
+    )
+
+    if not experiments:
+        warning("No experiments found")
+        return
+
+    headers = ["Created at", "ID"]
+    if not args.session_id:
+        headers.append("Session")
+    headers.append("Notes")
+
+    rows = []
+    for exp in experiments[:10]:
+        row = [
+            date_to_relative_time(exp["created_at"]),
+            exp["_id"],
+        ]
         if not args.session_id:
-            sess = Session.get_most_recent(db)
-        else:
-            sess = Session.get(db, args.session_id)
+            proj = {"name": 1}
+            row.append(
+                f"{db.get_session(exp['session_id'], projection=proj)['name']} ({exp['session_id']})"
+            )
+        row.append(exp.get("notes", {}))
+        rows.append(row)
 
-        # Start with empty outputs and let user edit
-        outputs = edit(
-            {},
-            title=f"New experiment",
-            description=f"Session: {sess['name']} ({sess['_id']})",
-        )
-        
-        Experiment(db, sess["_id"], outputs)
-        success("Experiment created successfully")
-    except (DatabaseError, SessionError) as e:
-        error(str(e))
-        sys.exit(1)
+    if len(experiments) > 10:
+        ellipsis_row = ["..."] * len(headers)
+        rows.append(ellipsis_row)
+
+    display_table(headers, rows)
 
 
+@cli_operation
+def cli_experiment_delete(args):
+    db = Database()
+    db.delete_experiment_with_cleanup(args.id)
+    success(f"Experiment '{args.id}' deleted successfully")
+
+
+@cli_operation
+def cli_experiment_create(args):
+    db = Database()
+    proj = {"name": 1}
+    sess = (
+        db.get_session(args.session_id, projection=proj)
+        if args.session_id
+        else db.get_most_recent_session(projection=proj)
+    )
+    last_notes = db.get_last_notes(sess["_id"])
+    notes = edit(
+        last_notes,
+        title=f"New experiment",
+        description=f"Session: {sess['name']} ({sess['_id']})",
+    )
+    db.create_experiment(sess["_id"], {}, notes)
+    success("Experiment created successfully")
+
+
+@cli_operation
 def cli_experiment_edit(args):
-    try:
-        db = get_db()
-        if not args.id:
-            exp = Experiment.get_most_recent(db)
-        else:
-            exp = Experiment.get(db, args.id)
-
-        sess = Session.get(db, exp["session_id"])
-        
-        # Split outputs into serializable and non-serializable
-        serializable_outputs = {}
-        non_serializable_outputs = {}
-        
-        for key, value in exp["outputs"].items():
-            if is_serializable(value):
-                serializable_outputs[key] = value
-            else:
-                non_serializable_outputs[key] = value
-        
-        # Edit only serializable outputs
-        edited_outputs = edit(
-            serializable_outputs,
-            title=f"Edit experiment outputs: {exp['_id']}",
-            description=f"Session: {sess['name']} ({sess['_id']})",
-        )
-        
-        # Merge with non-serializable outputs
-        final_outputs = {**non_serializable_outputs, **edited_outputs}
-        
-        Experiment.update_outputs(db, exp["_id"], final_outputs)
-        success(f"Experiment '{exp['_id']}' updated successfully")
-    except (DatabaseError, ExperimentError) as e:
-        error(str(e))
-        sys.exit(1)
+    db = Database()
+    proj = {"session_id": 1, "notes": 1}
+    exp = (
+        db.get_experiment(args.id, projection=proj)
+        if args.id
+        else db.get_most_recent_experiment(projection=proj)
+    )
+    sess = db.get_session(exp["session_id"], projection={"name": 1})
+    notes = edit(
+        exp.get("notes", {}),
+        title=f"Edit experiment notes: {exp['_id']}",
+        description=f"Session: {sess['name']} ({sess['_id']})",
+    )
+    experiment_id = exp["_id"]
+    db.update_experiment_notes(experiment_id, notes)
+    success(f"Experiment '{experiment_id}' updated successfully")

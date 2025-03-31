@@ -2,51 +2,45 @@ import json
 import os
 from pathlib import Path
 
-from jsonschema import validate, ValidationError
+from jsonschema import ValidationError, validate
+from pymongo import MongoClient
 
 CONFIG_FILE = Path.home() / ".labdb.json"
 CONFIG_SCHEMA = {
     "type": "object",
     "properties": {
-        "conn_string": {
-            "type": "string",
-            "description": "MongoDB connection string"
-        },
-        "db_name": {
-            "type": "string", 
-            "description": "Database name"
-        },
+        "conn_string": {"type": "string", "description": "MongoDB connection string"},
+        "db_name": {"type": "string", "description": "Database name"},
         "large_file_storage": {
             "type": "string",
             "enum": ["none", "local", "gridfs"],
-            "description": "Storage type for large files: 'none' (no large files allowed), 'local' (store on disk), or 'gridfs' (store in MongoDB GridFS)"
+            "description": "Storage type for large files",
         },
-        "large_file_storage_path": {
+        "local_file_storage_path": {
             "type": "string",
-            "description": "Path to the directory for storing large files (required if large_file_storage is 'local')"
+            "description": "Local file storage path",
         },
         "compress_arrays": {
             "type": "boolean",
-            "description": "Whether to compress arrays when storing them (applies to all storage types)",
-        }
+            "description": "Compress large files when storing them",
+        },
     },
     "required": ["conn_string", "db_name", "large_file_storage"],
     "allOf": [
         {
             "if": {
                 "properties": {"large_file_storage": {"const": "local"}},
-                "required": ["large_file_storage"]
+                "required": ["large_file_storage"],
             },
-            "then": {
-                "required": ["large_file_storage_path"]
-            }
+            "then": {"required": ["local_file_storage_path"]},
         }
-    ]
+    ],
 }
 
 
 class ConfigError(Exception):
     """Exception raised for configuration errors."""
+
     pass
 
 
@@ -59,7 +53,9 @@ def load_config():
             validate(config, CONFIG_SCHEMA)
             return config
     except (json.JSONDecodeError, ValidationError) as e:
-        raise ConfigError(f"Invalid configuration: {str(e)}. Please run 'labdb connection setup' to reconfigure.") from e
+        raise ConfigError(
+            f"Invalid configuration: {str(e)}. Please run 'labdb connection setup' to reconfigure."
+        ) from e
 
 
 def save_config(config: dict):
@@ -68,4 +64,23 @@ def save_config(config: dict):
         with open(CONFIG_FILE, "w") as f:
             json.dump(config, f, indent=2)
     except ValidationError as e:
-        raise ConfigError(f"Invalid configuration: {str(e)}. Please run 'labdb connection setup' to reconfigure.") from e
+        raise ConfigError(f"Invalid configuration: {str(e)}")
+
+
+def get_db(config: dict | None = None) -> MongoClient:
+    if config is None:
+        config = load_config()
+    if not config:
+        raise Exception(
+            "No database configuration found. Set up a connection first with `connection setup`"
+        )
+    conn_string = config["conn_string"]
+    db_name = config["db_name"]
+    return MongoClient(conn_string, serverSelectionTimeoutMS=5000)[db_name]
+
+
+def check_db(config: dict | None = None) -> None:
+    if config is None:
+        config = load_config()
+    db = get_db(config)
+    db.command("ping")
