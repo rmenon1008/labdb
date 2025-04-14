@@ -22,7 +22,8 @@ class ExperimentLogger:
 
     def new_experiment(self, interactive: bool = True) -> str:
         if interactive:
-            notes = edit({}, "New experiment notes", f"Session {self.session['name']} ({self.session['_id']})")
+            last_notes = self.db.get_last_notes(self.session["_id"])
+            notes = edit(last_notes, "New experiment notes", f"Session {self.session['name']} ({self.session['_id']})")
         else:
             notes = {}
         
@@ -33,7 +34,8 @@ class ExperimentLogger:
     def log_data(self, key: str, value: any) -> None:
         if not self.current_experiment_id:
             raise Exception("No experiment started. Use `new_experiment()` first.")
-        self.db.experiment_log_data(self.current_experiment_id, key, serialize(value, self.db.db, self.db.config["large_file_storage"]))
+        serialized_value = serialize(value, self.db.db, self.db.config["large_file_storage"])
+        self.db.experiment_log_data(self.current_experiment_id, key, serialized_value)
 
     def log_note(self, key: str, value: any) -> None:
         if not self.current_experiment_id:
@@ -48,19 +50,20 @@ class ExperimentQuery:
         self.experiments = self.db.experiments
     
     def get_experiments(self, query: dict = {}, projection: dict = {}):
-        cursor = self.experiments.find(query, projection)
+        cursor = self.experiments.find(query, projection).sort("created_at", -1)
         for doc in cursor:
             yield deserialize(doc, self.db.db)
 
     def get_experiments_from_session(self, session_id: str, query: dict = {}, projection: dict = {}):
         combined_query = {"session_id": session_id}
         combined_query.update(query)
-        cursor = self.experiments.find(combined_query, projection)
+        cursor = self.experiments.find(combined_query, projection).sort("created_at", -1)
         for doc in cursor:
             yield deserialize(doc, self.db.db)
     
     def experiment_log_data(self, experiment_id: str, key: str, value: any) -> None:
-        self.db.experiment_log_data(experiment_id, key, value)
+        serialized_value = serialize(value, self.db.db, self.db.config["large_file_storage"])
+        self.db.experiment_log_data(experiment_id, key, serialized_value)
 
     def experiment_log_note(self, experiment_id: str, key: str, value: any) -> None:
         self.db.experiment_log_note(experiment_id, key, value)

@@ -14,7 +14,7 @@ profiler.enable()
 query = ExperimentQuery()
 
 # Get all experiments from the session
-experiments = query.get_experiments_from_session("ssytvfsvc3")
+experiments = query.get_experiments_from_session("sua7710hif")
 
 # Access the numpy arrays from each experiment
 for exp in experiments:

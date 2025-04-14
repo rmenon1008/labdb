@@ -45,6 +45,10 @@ def cli_config_setup(args):
         "db_name": "labdb",
         "large_file_storage": "gridfs",
         "local_file_storage_path": "",
+        "webdav_url": "http://localhost:8080/webdav/",
+        "webdav_username": "",
+        "webdav_password": "",
+        "webdav_root": "/labdb/",
         "compress_arrays": False,
     }
 
@@ -53,20 +57,39 @@ def cli_config_setup(args):
             defaults[key] = old_config[key]
 
     new_config = {}
+    storage_type = None
 
+    # First, ask for properties that are always required
     for prop, details in CONFIG_SCHEMA["properties"].items():
-        description = details.get("description", prop)
-        prompt = description
+        if details.get("always_required", False):
+            description = details.get("description", prop)
+            prompt = description
 
-        if "enum" in details:
-            prompt += f" ({'/'.join(details['enum'])})"
+            if "enum" in details:
+                prompt += f" ({'/'.join(details['enum'])})"
 
-        if details.get("type") == "boolean":
-            prompt += " (y/n)"
-            input_val = get_input(prompt, "y" if defaults[prop] == True else "n")
-            new_config[prop] = input_val == "y"
-        else:
-            new_config[prop] = get_input(prompt, defaults[prop])
+            if details.get("type") == "boolean":
+                prompt += " (y/n)"
+                input_val = get_input(prompt, "y" if defaults[prop] == True else "n")
+                new_config[prop] = input_val == "y"
+            else:
+                new_config[prop] = get_input(prompt, defaults[prop])
+                
+            # Store the storage type to use later
+            if prop == "large_file_storage":
+                storage_type = new_config[prop]
+
+    # Then, ask for properties that are required for the selected storage type
+    for prop, details in CONFIG_SCHEMA["properties"].items():
+        required_for = details.get("required_for", [])
+        if storage_type in required_for:
+            description = details.get("description", prop)
+            
+            if details.get("type") == "boolean":
+                input_val = get_input(f"{description} (y/n)", "y" if defaults[prop] == True else "n")
+                new_config[prop] = input_val == "y"
+            else:
+                new_config[prop] = get_input(description, defaults[prop])
 
     try:
         save_config(new_config)

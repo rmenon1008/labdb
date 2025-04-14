@@ -16,7 +16,8 @@ dependencies = [
     "Pygments==2.19.1",
     "pymongo==4.11.3",
     "PyYAML==6.0.2",
-    "rich==13.9.4"
+    "rich==13.9.4",
+    "webdavclient3==3.14.6"
 ]
 
 [project.scripts]
