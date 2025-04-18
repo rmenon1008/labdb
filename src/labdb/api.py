@@ -20,10 +20,12 @@ class ExperimentLogger:
             )
         self.current_experiment_id = None
 
-    def new_experiment(self, interactive: bool = True) -> str:
-        if interactive:
+    def new_experiment(self, notes: dict | None = None) -> str:
+        if notes is None or notes == "none":
             last_notes = self.db.get_last_notes(self.session["_id"])
             notes = edit(last_notes, "New experiment notes", f"Session {self.session['name']} ({self.session['_id']})")
+        elif notes == "use_last":
+            notes = self.db.get_last_notes(self.session["_id"])
         else:
             notes = {}
         
@@ -49,15 +51,15 @@ class ExperimentQuery:
         self.sessions = self.db.sessions
         self.experiments = self.db.experiments
     
-    def get_experiments(self, query: dict = {}, projection: dict = {}):
-        cursor = self.experiments.find(query, projection).sort("created_at", -1)
+    def get_experiments(self, query: dict = {}, projection: dict = {}, sort: dict = {"created_at": 1}, limit: int = 0):
+        cursor = self.experiments.find(query, projection).sort(sort).limit(limit)
         for doc in cursor:
             yield deserialize(doc, self.db.db)
 
-    def get_experiments_from_session(self, session_id: str, query: dict = {}, projection: dict = {}):
+    def get_experiments_from_session(self, session_id: str, query: dict = {}, projection: dict = {}, sort: dict = {"created_at": 1}, limit: int = 0):
         combined_query = {"session_id": session_id}
         combined_query.update(query)
-        cursor = self.experiments.find(combined_query, projection).sort("created_at", -1)
+        cursor = self.experiments.find(combined_query, projection).sort(sort).limit(limit)
         for doc in cursor:
             yield deserialize(doc, self.db.db)
     
