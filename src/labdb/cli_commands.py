@@ -159,8 +159,8 @@ def cli_session_create(args):
     db = Database()
     name = get_input("Enter session name")
     details = edit({"description": ""}, title=f"New session: {name}")
-    db.create_session(name, details)
-    success(f"Session '{name}' created successfully")
+    session_id = db.create_session(name, details)
+    success(f"Session '{name} ({session_id})' created successfully")
 
 
 @cli_operation
@@ -253,8 +253,8 @@ def cli_experiment_create(args):
         title=f"New experiment",
         description=f"Session: {sess['name']} ({sess['_id']})",
     )
-    db.create_experiment(sess["_id"], {}, notes)
-    success("Experiment created successfully")
+    experiment_id = db.create_experiment(sess["_id"], {}, notes)
+    success(f"Experiment '{experiment_id}' created successfully")
 
 
 @cli_operation

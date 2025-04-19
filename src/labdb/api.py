@@ -30,7 +30,7 @@ class ExperimentLogger:
             notes = {}
         
         self.current_experiment_id = self.db.create_experiment(self.session["_id"], {}, notes)
-        print(f"Started experiment {self.current_experiment_id}")
+        key_value("Started experiment", self.current_experiment_id)
         return self.current_experiment_id
 
     def log_data(self, key: str, value: any) -> None:
