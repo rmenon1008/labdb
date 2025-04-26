@@ -1,47 +1,23 @@
-# MongoDB Experiment Tool
+# `labdb`
 
 A simple CLI tool for managing MongoDB experiments.
 
-## Installation
+## Installation and Setup
 
+Install with:
 ```bash
-pip install -e .
+pip install .
 ```
 
-Or install in development mode with dependencies:
-
+Then, setup with:
 ```bash
-pip install -e ".[dev]"
+labdb config setup
 ```
+## Overview
 
-## Dependencies
+## CLI Usage
 
-This tool requires:
-- Python 3.8 or higher
-- pymongo
-- rich (for improved CLI formatting)
 
-## Usage
+## API Usage
 
-```bash
-# Setup MongoDB connection
-python -m src.mongo-experiment.cli connection setup
-
-# Check MongoDB connection
-python -m src.mongo-experiment.cli connection check
-
-# Show connection settings
-python -m src.mongo-experiment.cli connection show
-
-# Session management
-python -m src.mongo-experiment.cli session list
-python -m src.mongo-experiment.cli session create
-python -m src.mongo-experiment.cli session edit [id]
-python -m src.mongo-experiment.cli session delete <id>
-
-# Experiment management
-python -m src.mongo-experiment.cli experiment list [session_id]
-python -m src.mongo-experiment.cli experiment create [session_id]
-python -m src.mongo-experiment.cli experiment edit [id]
-python -m src.mongo-experiment.cli experiment delete <id>
-```
+When logging and querying real experimental data, it's more than likely you'll want to do so programatically. The `ExperimentLogger` and `ExperimentQuery` classes can be used for this.
