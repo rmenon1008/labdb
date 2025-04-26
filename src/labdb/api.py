@@ -3,6 +3,7 @@ from labdb.cli_formatting import info, key_value
 from labdb.cli_json_editor import edit
 from labdb.serialization import serialize, deserialize
 from pymongo.cursor import Cursor
+import numpy as np
 
 class ExperimentLogger:
     def __init__(self, session_id: str = None) -> None:
@@ -50,6 +51,17 @@ class ExperimentQuery:
         self.db = Database()
         self.sessions = self.db.sessions
         self.experiments = self.db.experiments
+
+    def get_session(self, session_id: str, projection: dict = {}):
+        return self.sessions.find_one({"_id": session_id}, projection)
+    
+    def get_sessions(self, query: dict = {}, projection: dict = {}, sort: dict = {"created_at": 1}, limit: int = 0):
+        cursor = self.sessions.find(query, projection).sort(sort).limit(limit)
+        for doc in cursor:
+            yield deserialize(doc, self.db.db)
+
+    def get_experiment(self, experiment_id: str, projection: dict = {}):
+        return self.experiments.find_one({"_id": experiment_id}, projection)
     
     def get_experiments(self, query: dict = {}, projection: dict = {}, sort: dict = {"created_at": 1}, limit: int = 0):
         cursor = self.experiments.find(query, projection).sort(sort).limit(limit)
