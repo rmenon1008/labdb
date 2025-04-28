@@ -4,10 +4,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple, Union
 
 import numpy as np
-from webdav3.client import Client as WebDAVClient
 from bson.binary import Binary
 from gridfs import GridFS
 from pymongo import MongoClient
+from webdav3.client import Client as WebDAVClient
 
 from labdb.config import load_config
 from labdb.utils import long_id
@@ -33,7 +33,7 @@ def serialize_numpy_array(
     buffer.seek(0)
     data = buffer.getvalue()
 
-    # Check if the data exceeds 16MB (MongoDB's BSON document size limit)
+    # Check if the data exceeds 16MiB (MongoDB's BSON document size limit)
     if len(data) > 16 * 1024 * 1024:
         # If no storage type specified, get it from config
         if storage_type is None:
@@ -69,40 +69,50 @@ def serialize_numpy_array(
                 "__compressed__": compress,
             }
         elif storage_type == "webdav":
-            if not all(k in config for k in ["webdav_url", "webdav_username", "webdav_password", "webdav_root"]):
+            if not all(
+                k in config
+                for k in [
+                    "webdav_url",
+                    "webdav_username",
+                    "webdav_password",
+                    "webdav_root",
+                ]
+            ):
                 raise ValueError(
                     "WebDAV storage not configured correctly. Please set 'webdav_url', 'webdav_username', 'webdav_password', and 'webdav_root' in config."
                 )
-            
+
             webdav_options = {
-                'webdav_hostname': config["webdav_url"],
-                'webdav_login': config["webdav_username"],
-                'webdav_password': config["webdav_password"],
+                "webdav_hostname": config["webdav_url"],
+                "webdav_login": config["webdav_username"],
+                "webdav_password": config["webdav_password"],
             }
-            
+
             client = WebDAVClient(webdav_options)
             root_path = config["webdav_root"]
-            
+
             # Ensure the root directory exists
             if not client.check(root_path):
                 client.mkdir(root_path)
-            
+
             file_name = f"numpy_array_{long_id()}.{'npz' if compress else 'npy'}"
             remote_path = f"{root_path}/{file_name}"
-            
+
             # Upload to WebDAV
             buffer.seek(0)
-            temp_file_path = f"/tmp/numpy_array_{long_id()}.{'npz' if compress else 'npy'}"
-            with open(temp_file_path, 'wb') as f:
+            temp_file_path = (
+                f"/tmp/numpy_array_{long_id()}.{'npz' if compress else 'npy'}"
+            )
+            with open(temp_file_path, "wb") as f:
                 f.write(buffer.getvalue())
-            
+
             try:
                 client.upload(remote_path, temp_file_path)
             finally:
                 # Clean up the temporary file
                 if os.path.exists(temp_file_path):
                     os.remove(temp_file_path)
-            
+
             return {
                 "__numpy_array__": True,
                 "__storage_type__": "webdav",
@@ -177,19 +187,21 @@ def deserialize_numpy_array(data: Dict[str, Any], db: MongoClient = None) -> np.
     elif storage_type == "webdav":
         # Load from WebDAV
         webdav_options = {
-            'webdav_hostname': data["webdav_url"],
-            'webdav_login': data["webdav_username"],
-            'webdav_password': data["webdav_password"],
+            "webdav_hostname": data["webdav_url"],
+            "webdav_login": data["webdav_username"],
+            "webdav_password": data["webdav_password"],
         }
-        
+
         client = WebDAVClient(webdav_options)
         remote_path = data["remote_path"]
-        
+
         # Download from WebDAV
-        temp_file_path = f"/tmp/numpy_array_{long_id()}.{'npz' if is_compressed else 'npy'}"
+        temp_file_path = (
+            f"/tmp/numpy_array_{long_id()}.{'npz' if is_compressed else 'npy'}"
+        )
         try:
             client.download(remote_path, temp_file_path)
-            
+
             # Load the array from the temporary file
             if is_compressed:
                 arr = np.load(temp_file_path)["arr"]
@@ -221,21 +233,17 @@ def deserialize_numpy_array(data: Dict[str, Any], db: MongoClient = None) -> np.
     return arr
 
 
-def serialize(
-    obj: Any, db: MongoClient = None, storage_type: str = None
-) -> Any:
+def serialize(obj: Any, db: MongoClient, storage_type: str = None) -> Any:
     if isinstance(obj, np.ndarray):
         return serialize_numpy_array(obj, db, storage_type)
     elif isinstance(obj, dict):
-        return {
-            k: serialize(v, db, storage_type) for k, v in obj.items()
-        }
+        return {k: serialize(v, db, storage_type) for k, v in obj.items()}
     elif isinstance(obj, (list, tuple)):
         return [serialize(v, db, storage_type) for v in obj]
     return obj
 
 
-def deserialize(obj: Any, db: MongoClient = None) -> Any:
+def deserialize(obj: Any, db: MongoClient) -> Any:
     if isinstance(obj, dict):
         if obj.get("__numpy_array__"):
             return deserialize_numpy_array(obj, db)
@@ -269,9 +277,9 @@ def cleanup_array_files(obj: Any, db: MongoClient = None) -> None:
                 # Delete from WebDAV
                 try:
                     webdav_options = {
-                        'webdav_hostname': obj["webdav_url"],
-                        'webdav_login': obj["webdav_username"],
-                        'webdav_password': obj["webdav_password"],
+                        "webdav_hostname": obj["webdav_url"],
+                        "webdav_login": obj["webdav_username"],
+                        "webdav_password": obj["webdav_password"],
                     }
                     client = WebDAVClient(webdav_options)
                     remote_path = obj["remote_path"]

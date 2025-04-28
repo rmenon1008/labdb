@@ -74,9 +74,9 @@ def main():
         **{"id": {"help": "Session ID to delete"}},
     )
     add_command(
-        session_subs, 
-        "create", 
-        cli_session_create, 
+        session_subs,
+        "create",
+        cli_session_create,
         "Create a new session with a name and optional description in the JSON editor",
     )
     add_command(
@@ -84,7 +84,12 @@ def main():
         "edit",
         cli_session_edit,
         "Edit an existing session's properties by ID using the JSON editor (uses most recent session if ID not provided)",
-        **{"id": {"help": "Session ID to edit (optional, defaults to most recent)", "nargs": "?"}},
+        **{
+            "id": {
+                "help": "Session ID to edit (optional, defaults to most recent)",
+                "nargs": "?",
+            }
+        },
     )
 
     # Experiment command - singular form
@@ -97,7 +102,12 @@ def main():
         "list",
         cli_experiment_list,
         "List all experiments with creation dates, IDs, and notes, optionally filtered by session ID",
-        **{"session_id": {"help": "Optional session ID to list only experiments for that session", "nargs": "?"}},
+        **{
+            "session_id": {
+                "help": "Optional session ID to list only experiments for that session",
+                "nargs": "?",
+            }
+        },
     )
     add_command(
         experiment_subs,
@@ -123,7 +133,12 @@ def main():
         "edit",
         cli_experiment_edit,
         "Edit an existing experiment's notes by ID using the JSON editor (uses most recent experiment if ID not provided)",
-        **{"id": {"help": "Experiment ID to edit (optional, defaults to most recent)", "nargs": "?"}},
+        **{
+            "id": {
+                "help": "Experiment ID to edit (optional, defaults to most recent)",
+                "nargs": "?",
+            }
+        },
     )
 
     args = parser.parse_args()

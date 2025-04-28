@@ -10,50 +10,50 @@ CONFIG_SCHEMA = {
     "type": "object",
     "properties": {
         "conn_string": {
-            "type": "string", 
+            "type": "string",
             "description": "MongoDB connection string",
-            "always_required": True
+            "always_required": True,
         },
         "db_name": {
-            "type": "string", 
+            "type": "string",
             "description": "Database name",
-            "always_required": True
+            "always_required": True,
         },
         "large_file_storage": {
             "type": "string",
             "enum": ["none", "local", "gridfs", "webdav"],
             "description": "Storage type for large files",
-            "always_required": True
+            "always_required": True,
         },
         "local_file_storage_path": {
             "type": "string",
             "description": "Local file storage path",
-            "required_for": ["local"]
+            "required_for": ["local"],
         },
         "webdav_url": {
             "type": "string",
             "description": "WebDAV server URL",
-            "required_for": ["webdav"]
+            "required_for": ["webdav"],
         },
         "webdav_username": {
             "type": "string",
             "description": "WebDAV username",
-            "required_for": ["webdav"]
+            "required_for": ["webdav"],
         },
         "webdav_password": {
             "type": "string",
             "description": "WebDAV password",
-            "required_for": ["webdav"]
+            "required_for": ["webdav"],
         },
         "webdav_root": {
             "type": "string",
             "description": "WebDAV root directory",
-            "required_for": ["webdav"]
+            "required_for": ["webdav"],
         },
         "compress_arrays": {
             "type": "boolean",
             "description": "Compress large files when storing them",
-            "always_required": True
+            "always_required": True,
         },
     },
     "required": ["conn_string", "db_name", "large_file_storage"],
@@ -70,8 +70,15 @@ CONFIG_SCHEMA = {
                 "properties": {"large_file_storage": {"const": "webdav"}},
                 "required": ["large_file_storage"],
             },
-            "then": {"required": ["webdav_url", "webdav_username", "webdav_password", "webdav_root"]},
-        }
+            "then": {
+                "required": [
+                    "webdav_url",
+                    "webdav_username",
+                    "webdav_password",
+                    "webdav_root",
+                ]
+            },
+        },
     ],
 }
 

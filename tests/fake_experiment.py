@@ -20,7 +20,9 @@ for i in range(5):
     # Set some values
     t = np.int32
     size = 100_000_000
-    numpy_array = np.random.randint(np.iinfo(t).min, np.iinfo(t).max, size=size, dtype=t)
+    numpy_array = np.random.randint(
+        np.iinfo(t).min, np.iinfo(t).max, size=size, dtype=t
+    )
     logger.log_data("test", numpy_array)
     logger.log_note("notes", "This is a test experiment")
 
