@@ -121,7 +121,7 @@ def validate_path(path: list[str]):
             raise
 
 
-def resolve_path(current_path: list[str], target_path: str or list[str]) -> list[str]:
+def resolve_path(current_path: list[str], target_path: str | list[str]) -> list[str]:
     """
     Resolve a target path against the current path, handling:
     - Absolute paths (starting with slash)
