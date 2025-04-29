@@ -3,19 +3,26 @@ import json
 import sys
 import traceback
 
-from labdb.cli_formatting import (
-    display_table,
-    error,
-    get_input,
-    info,
-    key_value,
-    success,
-    warning,
-)
+from labdb.cli_formatting import bold, error, get_input, info, success
 from labdb.cli_json_editor import edit
-from labdb.config import CONFIG_FILE, CONFIG_SCHEMA, load_config, save_config
+from labdb.config import (
+    CONFIG_DEPENDENCIES,
+    CONFIG_FILE,
+    CONFIG_SCHEMA,
+    CONFIG_SETUP_ORDER,
+    get_current_path,
+    load_config,
+    save_config,
+    update_current_path,
+)
 from labdb.database import Database
-from labdb.utils import date_to_relative_time
+from labdb.utils import (
+    date_to_relative_time,
+    dict_str,
+    join_path,
+    resolve_path,
+    split_path,
+)
 
 
 def cli_operation(func):
@@ -34,68 +41,85 @@ def cli_operation(func):
     return wrapper
 
 
-def cli_config_setup(args):
+def cli_setup(args):
     try:
-        old_config = load_config() or {}
+        old_config = load_config(should_validate=False) or {}
     except Exception:
+        print("ERROR LOADING CONFIG")
         old_config = {}
 
-    defaults = {
-        "conn_string": "localhost:27017",
-        "db_name": "labdb",
-        "large_file_storage": "gridfs",
-        "local_file_storage_path": "",
-        "webdav_url": "http://localhost:8080/webdav/",
-        "webdav_username": "",
-        "webdav_password": "",
-        "webdav_root": "/labdb/",
-        "compress_arrays": False,
-    }
-
-    for key in defaults:
-        if key in old_config:
-            defaults[key] = old_config[key]
-
+    # Initialize new config with any internal properties
     new_config = {}
-    storage_type = None
-
-    # First, ask for properties that are always required
     for prop, details in CONFIG_SCHEMA["properties"].items():
-        if details.get("always_required", False):
-            description = details.get("description", prop)
-            prompt = description
+        if details.get("internal", False) and prop in old_config:
+            new_config[prop] = old_config[prop]
 
-            if "enum" in details:
-                prompt += f" ({'/'.join(details['enum'])})"
+    # Gather user input for each configuration property
+    for prop in CONFIG_SETUP_ORDER:
+        # Skip if property is not in schema
+        if prop not in CONFIG_SCHEMA["properties"]:
+            continue
 
-            if details.get("type") == "boolean":
-                prompt += " (y/n)"
-                input_val = get_input(prompt, "y" if defaults[prop] == True else "n")
-                new_config[prop] = input_val == "y"
-            else:
-                new_config[prop] = get_input(prompt, defaults[prop])
+        details = CONFIG_SCHEMA["properties"][prop]
 
-            # Store the storage type to use later
-            if prop == "large_file_storage":
-                storage_type = new_config[prop]
+        # Skip internal properties
+        if details.get("internal", False):
+            continue
 
-    # Then, ask for properties that are required for the selected storage type
-    for prop, details in CONFIG_SCHEMA["properties"].items():
-        required_for = details.get("required_for", [])
-        if storage_type in required_for:
-            description = details.get("description", prop)
+        # Check if this property has dependencies
+        if prop in CONFIG_DEPENDENCIES:
+            dependency = CONFIG_DEPENDENCIES[prop]
+            dep_field = dependency["field"]
+            dep_value = dependency["value"]
 
-            if details.get("type") == "boolean":
-                input_val = get_input(
-                    f"{description} (y/n)", "y" if defaults[prop] == True else "n"
-                )
-                new_config[prop] = input_val == "y"
-            else:
-                new_config[prop] = get_input(description, defaults[prop])
+            # Skip if the dependent field doesn't have the required value
+            if dep_field not in new_config or new_config[dep_field] != dep_value:
+                continue
+
+        # Prepare default value
+        default_value = None
+        if prop in old_config:
+            default_value = old_config[prop]
+        elif "default" in details:
+            default_value = details["default"]
+
+        # Prepare prompt
+        description = details.get("description", prop)
+        prompt = description
+
+        if "enum" in details:
+            prompt += f" ({'/'.join(details['enum'])})"
+
+        # Handle different property types
+        if details.get("type") == "boolean":
+            prompt += " (y/n)"
+            default_display = "y" if default_value == True else "n"
+            input_val = get_input(prompt, default_display)
+            new_config[prop] = input_val.lower() == "y"
+        elif details.get("type") == "number":
+            new_config[prop] = int(get_input(prompt, default_value))
+        else:
+            new_config[prop] = get_input(prompt, default_value)
+
+    # Ensure dependent fields have proper default values when not asked
+    # For non-gridfs storage, explicitly set local_cache_enabled to False
+    if new_config.get("large_file_storage") != "gridfs":
+        new_config["local_cache_enabled"] = False
+
+    # If local cache is disabled, set sensible defaults for cache properties
+    if not new_config.get("local_cache_enabled", False):
+        if "local_cache_path" in CONFIG_SCHEMA["properties"]:
+            new_config["local_cache_path"] = CONFIG_SCHEMA["properties"][
+                "local_cache_path"
+            ].get("default", "")
+        if "local_cache_max_size_mb" in CONFIG_SCHEMA["properties"]:
+            new_config["local_cache_max_size_mb"] = CONFIG_SCHEMA["properties"][
+                "local_cache_max_size_mb"
+            ].get("default", 1024)
 
     try:
         save_config(new_config)
-        db = Database()
+        db = Database(new_config)
     except Exception as e:
         save_config(old_config)
         error("Configuration setup failed")
@@ -106,174 +130,241 @@ def cli_config_setup(args):
 
 
 @cli_operation
-def cli_setup_check(args):
-    db = Database()
+def cli_config_check(args):
+    config = load_config()
+    db = Database(config)
+    # Explicitly test connection with a lightweight operation
+    db.db.command("ping")
     success("MongoDB connection is working properly")
 
 
 @cli_operation
-def cli_setup_show(args):
+def cli_config_show(args):
     info(f"Configuration stored in [blue]{CONFIG_FILE}[/blue]")
     config = load_config()
     for key, value in config.items():
-        key_value(key, value)
-
-
-def cli_session_list(args):
-    db = Database()
-    sessions = list(
-        db.sessions.find({}, {"_id": 1, "name": 1, "created_at": 1})
-        .sort("created_at", -1)
-        .limit(11)
-    )
-    if not sessions:
-        warning("No sessions found")
-        return
-    headers = ["Created at", "ID", "Name", "Experiments"]
-    rows = [
-        [
-            date_to_relative_time(sess["created_at"]),
-            sess["_id"],
-            sess["name"],
-            db.experiments.count_documents({"session_id": sess["_id"]}),
-        ]
-        for sess in sessions[:10]
-    ]
-    if len(sessions) > 10:
-        rows.append(["...", "...", "...", "..."])
-    display_table(headers, rows)
+        if key in CONFIG_SCHEMA["properties"] and CONFIG_SCHEMA["properties"][key].get(
+            "internal", False
+        ):
+            continue
+        print(f"{key}: {value}")
 
 
 @cli_operation
-def cli_session_delete(args):
-    db = Database()
-    experiment_count = db.experiments.count_documents({"session_id": args.id})
-    if experiment_count > 0:
-        warning(f"Session {args.id} has {experiment_count} experiments")
-        if get_input("Delete session and all associated experiments? (y/n)") != "y":
+def cli_ls(args):
+    config = load_config()
+    db = Database(config)
+    current_path = get_current_path()
+
+    # If path is provided, resolve it against current path
+    if args.path:
+        try:
+            path = resolve_path(current_path, args.path)
+        except ValueError as e:
+            error(f"Invalid path: {e}")
             return
-    db.delete_session_with_cleanup(args.id)
-    success(f"Session {args.id} deleted successfully")
-
-
-@cli_operation
-def cli_session_create(args):
-    db = Database()
-    name = get_input("Enter session name")
-    details = edit({"description": ""}, title=f"New session: {name}")
-    session_id = db.create_session(name, details)
-    success(f"Session '{name} ({session_id})' created successfully")
-
-
-@cli_operation
-def cli_session_edit(args):
-    db = Database()
-    proj = {"name": 1, "details": 1}
-    if not args.id:
-        sess = db.get_most_recent_session(projection=proj)
     else:
-        sess = db.get_session(args.id, projection=proj)
+        path = current_path
 
-    details = edit(
-        sess["details"],
-        title=f"Edit session: {sess['name']} ({sess['_id']})",
-    )
-    db.update_session_details(sess["_id"], details)
-    success(f"Session {sess['name']} ({sess['_id']}) updated successfully")
-
-
-@cli_operation
-def cli_experiment_list(args):
-    db = Database()
-
-    if args.session_id:
-        sess = db.get_session(args.session_id)
-        info(f"Experiments for session: {sess['name']} ({sess['_id']})")
-        query = {"session_id": sess["_id"]}
-    else:
-        info("All experiments")
-        query = {}
-
-    experiments = list(
-        db.experiments.find(
-            query,
-            {"_id": 1, "created_at": 1, "notes": 1, "session_id": 1},
+    items = db.list_dir(path)
+    if not items:
+        info(f"No items in {join_path(path)}")
+        return
+    # Print header for the table
+    path_str = join_path(path)
+    if len(path_str) > 21:
+        path_str = "..." + path_str[-18:]
+    bold(f"{'Listing ' + path_str:<30} {'Created':<20} {'Notes':<70}")
+    for item in items:
+        item_path = item["path"][-1]
+        item_path += "/" if item["type"] == "directory" else ""
+        print(
+            f"{item_path:<30} {date_to_relative_time(item['created_at']):<20} {(dict_str(item['notes']) if item['notes'] else '')[:70]}"
         )
-        .sort("created_at", -1)
-        .limit(11)
-    )
 
-    if not experiments:
-        warning("No experiments found")
+
+@cli_operation
+def cli_mkdir(args):
+    config = load_config()
+    db = Database(config)
+    current_path = get_current_path()
+
+    try:
+        path = resolve_path(current_path, args.path)
+        db.create_dir(path)
+        info(f"Created directory {join_path(path)}")
+    except ValueError as e:
+        error(f"Invalid path: {e}")
+    except Exception as e:
+        error(f"Error creating directory: {e}")
+
+
+@cli_operation
+def cli_rm(args):
+    config = load_config()
+    db = Database(config)
+    current_path = get_current_path()
+
+    try:
+        path = resolve_path(current_path, args.path)
+
+        # Run in dry-run mode first to get count of affected items
+        affected_counts = db.delete(path, dry_run=True)
+        total_affected = affected_counts["experiments"] + affected_counts["directories"]
+
+        if total_affected == 0:
+            error(f"No items affected")
+            return
+
+        # If in dry-run mode, just show the count and exit
+        if hasattr(args, "dry_run") and args.dry_run:
+            exp_text = f"{affected_counts['experiments']} experiment{'s' if affected_counts['experiments'] != 1 else ''}"
+            dir_text = f"{affected_counts['directories']} director{'ies' if affected_counts['directories'] != 1 else 'y'}"
+            info(f"Would delete {exp_text} and {dir_text} from {join_path(path)}")
+            return
+
+        # Confirm with user before proceeding
+        exp_text = f"{affected_counts['experiments']} experiment{'s' if affected_counts['experiments'] != 1 else ''}"
+        dir_text = f"{affected_counts['directories']} director{'ies' if affected_counts['directories'] != 1 else 'y'}"
+        confirm_message = f'Deleting "{join_path(path)}" will result in {exp_text} and {dir_text} being deleted'
+
+        error(confirm_message)
+        confirmation = input("Proceed? (y/n): ").strip().lower()
+        if confirmation != "y":
+            info("Operation canceled")
+            return
+
+        # Proceed with actual deletion
+        db.delete(path)
+        info(f"Removed {join_path(path)}")
+    except ValueError as e:
+        error(f"Invalid path: {e}")
+    except Exception as e:
+        error(f"Error removing path: {e}")
+
+
+@cli_operation
+def cli_mv(args):
+    config = load_config()
+    db = Database(config)
+    current_path = get_current_path()
+
+    try:
+        src_path = resolve_path(current_path, args.src_path)
+        dest_path = resolve_path(current_path, args.dest_path)
+
+        # Run in dry-run mode first to get count of affected items
+        affected_counts = db.move(src_path, dest_path, dry_run=True)
+        total_affected = affected_counts["experiments"] + affected_counts["directories"]
+
+        if total_affected == 0:
+            error(f"No items affected")
+            return
+
+        # If in dry-run mode, just show the count and exit
+        if hasattr(args, "dry_run") and args.dry_run:
+            exp_text = f"{affected_counts['experiments']} experiment{'s' if affected_counts['experiments'] != 1 else ''}"
+            dir_text = f"{affected_counts['directories']} director{'ies' if affected_counts['directories'] != 1 else 'y'}"
+            info(
+                f"Would move {exp_text} and {dir_text} from {join_path(src_path)} to {join_path(dest_path)}"
+            )
+            return
+
+        # Confirm with user before proceeding
+        exp_text = f"{affected_counts['experiments']} experiment{'s' if affected_counts['experiments'] != 1 else ''}"
+        dir_text = f"{affected_counts['directories']} director{'ies' if affected_counts['directories'] != 1 else 'y'}"
+        confirm_message = f'Moving "{join_path(src_path)}" to "{join_path(dest_path)}" will move {exp_text} and {dir_text}'
+
+        print(confirm_message)
+        confirmation = input("Proceed? (y/n): ").strip().lower()
+        if confirmation != "y":
+            info("Operation canceled")
+            return
+
+        # Proceed with actual move
+        db.move(src_path, dest_path)
+        info(f"Moved {join_path(src_path)} to {join_path(dest_path)}")
+    except ValueError as e:
+        error(f"Invalid path: {e}")
+    except Exception as e:
+        error(f"Error moving path: {e}")
+
+
+@cli_operation
+def cli_pwd(args):
+    current_path = get_current_path()
+    info(join_path(current_path))
+
+
+@cli_operation
+def cli_cd(args):
+    config = load_config()
+    db = Database(config)
+    current_path = get_current_path()
+
+    if not args.path:
+        # Reset to root
+        update_current_path([])
+        info("Changed to /")
         return
 
-    headers = ["Created at", "ID"]
-    if not args.session_id:
-        headers.append("Session")
-    headers.append("Notes")
+    try:
+        path = resolve_path(current_path, args.path)
 
-    rows = []
-    for exp in experiments[:10]:
-        row = [
-            date_to_relative_time(exp["created_at"]),
-            exp["_id"],
-        ]
-        if not args.session_id:
-            proj = {"name": 1}
-            row.append(
-                f"{db.get_session(exp['session_id'], projection=proj)['name']} ({exp['session_id']})"
+        # Check if directory exists
+        if not db.dir_exists(path):
+            error(f"Directory {join_path(path)} does not exist")
+            return
+
+        update_current_path(path)
+        info(f"Changed to {join_path(path)}")
+    except ValueError as e:
+        error(f"Invalid path: {e}")
+
+
+@cli_operation
+def cli_edit(args):
+    config = load_config()
+    db = Database(config)
+    current_path = get_current_path()
+
+    if not args.path:
+        error("No path specified")
+        return
+
+    try:
+        path = resolve_path(current_path, args.path)
+
+        # Check if it's a directory or experiment
+        if db.dir_exists(path):
+            # Get the current notes for this directory
+            dir_doc = db.directories.find_one({"path": path})
+            if not dir_doc:
+                error(f"Directory {join_path(path)} not found")
+                return
+
+            notes = dir_doc.get("notes", {})
+            edited_notes = edit(
+                notes,
+                title=f"Edit directory notes: {join_path(path)}",
             )
-        row.append(exp.get("notes", {}))
-        rows.append(row)
+            db.update_dir_notes(path, edited_notes)
+            success(f"Updated notes for directory {join_path(path)}")
+        else:
+            # It's an experiment
+            exp_doc = db.experiments.find_one({"path": path})
+            if not exp_doc:
+                error(f"Path {join_path(path)} not found")
+                return
 
-    if len(experiments) > 10:
-        ellipsis_row = ["..."] * len(headers)
-        rows.append(ellipsis_row)
-
-    display_table(headers, rows)
-
-
-@cli_operation
-def cli_experiment_delete(args):
-    db = Database()
-    db.delete_experiment_with_cleanup(args.id)
-    success(f"Experiment '{args.id}' deleted successfully")
-
-
-@cli_operation
-def cli_experiment_create(args):
-    db = Database()
-    proj = {"name": 1}
-    sess = (
-        db.get_session(args.session_id, projection=proj)
-        if args.session_id
-        else db.get_most_recent_session(projection=proj)
-    )
-    last_notes = db.get_last_notes(sess["_id"])
-    notes = edit(
-        last_notes,
-        title=f"New experiment",
-        description=f"Session: {sess['name']} ({sess['_id']})",
-    )
-    experiment_id = db.create_experiment(sess["_id"], {}, notes)
-    success(f"Experiment '{experiment_id}' created successfully")
-
-
-@cli_operation
-def cli_experiment_edit(args):
-    db = Database()
-    proj = {"session_id": 1, "notes": 1}
-    exp = (
-        db.get_experiment(args.id, projection=proj)
-        if args.id
-        else db.get_most_recent_experiment(projection=proj)
-    )
-    sess = db.get_session(exp["session_id"], projection={"name": 1})
-    notes = edit(
-        exp.get("notes", {}),
-        title=f"Edit experiment notes: {exp['_id']}",
-        description=f"Session: {sess['name']} ({sess['_id']})",
-    )
-    experiment_id = exp["_id"]
-    db.update_experiment_notes(experiment_id, notes)
-    success(f"Experiment '{experiment_id}' updated successfully")
+            notes = exp_doc.get("notes", {})
+            edited_notes = edit(
+                notes,
+                title=f"Edit experiment notes: {join_path(path)}",
+            )
+            db.update_experiment_notes(path, edited_notes)
+            success(f"Updated notes for experiment {join_path(path)}")
+    except ValueError as e:
+        error(f"Invalid path: {e}")
+    except Exception as e:
+        error(f"Error editing notes: {e}")

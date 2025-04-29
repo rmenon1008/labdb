@@ -3,7 +3,7 @@ from datetime import datetime
 from pymongo import MongoClient
 
 from labdb.config import load_config
-from labdb.serialization import cleanup_array_files, serialize, deserialize
+from labdb.serialization import cleanup_array_files, deserialize, serialize
 from labdb.utils import (
     join_path,
     merge_mongo_queries,
@@ -15,15 +15,18 @@ from labdb.utils import (
 
 
 class Database:
-    def __init__(self, config: dict):
+    def __init__(self, config: dict | None = None):
         # Connect to database
+        if config is None:
+            config = load_config()
+
         self.config = config
         conn_string = self.config["conn_string"]
         db_name = self.config["db_name"]
         try:
-            self.db = MongoClient(conn_string, serverSelectionTimeoutMS=5000)[db_name]
-            self.db.command("ping")
-            self.db.list_collection_names()
+            self.client = MongoClient(conn_string, serverSelectionTimeoutMS=5000)
+            self.db = self.client[db_name]
+            # No need to ping or list collections on init - will fail on first actual operation if issue
         except Exception as e:
             raise Exception(f"Failed to connect to database: {e}")
 
@@ -35,7 +38,7 @@ class Database:
         validate_path(path)
 
         if self.path_exists(path):
-            raise Exception(f"Path {path} already exists")
+            raise Exception(f"Path {join_path(path)} already exists")
 
         if len(path) == 0:
             raise Exception("Cannot create path at root")
@@ -47,8 +50,10 @@ class Database:
         self.directories.insert_one(
             {
                 "_id": short_directory_id(),
+                "type": "directory",
                 "path": path,
                 "notes": notes,
+                "created_at": datetime.now(),
             }
         )
 
@@ -59,10 +64,10 @@ class Database:
             self.directories.count_documents({"path": path}) > 0
             or self.experiments.count_documents({"path": path}) > 0
         )
-    
+
     def ensure_path_exists(self, path: list[str]):
         if not self.path_exists(path):
-            raise Exception(f"Path {path} does not exist")
+            raise Exception(f"Path {join_path(path)} does not exist")
 
     def dir_exists(self, path: list[str]):
         if len(path) == 0:
@@ -71,16 +76,23 @@ class Database:
 
     def list_dir(self, path: list[str]):
         if not self.dir_exists(path):
-            raise Exception(f"Directory {path} does not exist")
+            raise Exception(f"Directory {join_path(path)} does not exist")
 
         base_query = {"path": {"$size": len(path) + 1}}
         if len(path) > 0:
             base_query["path"]["$all"] = path
             base_query[f"path.{len(path) - 1}"] = path[-1]
 
+        # Only project the fields we need
+        projection = {"_id": 0, "type": 1, "path": 1, "created_at": 1, "notes": 1}
+
         # Combine results from both collections
-        dir_results = list(self.directories.find(base_query))
-        exp_results = list(self.experiments.find(base_query))
+        dir_results = list(
+            self.directories.find(base_query, projection).sort("created_at", -1)
+        )
+        exp_results = list(
+            self.experiments.find(base_query, projection).sort("created_at", -1)
+        )
 
         return dir_results + exp_results
 
@@ -95,10 +107,12 @@ class Database:
         notes: dict = {},
     ):
         if not self.dir_exists(path):
-            raise Exception(f"Directory {path} does not exist")
+            raise Exception(f"Directory {join_path(path)} does not exist")
         if name:
             if self.path_exists(path + [name]):
-                raise Exception(f"Experiment {name} already exists at {path}")
+                raise Exception(
+                    f"Experiment {name} already exists at {join_path(path)}"
+                )
             experiment_id = name
         else:
             experiment_id = str(self.count_experiments(path))
@@ -107,6 +121,7 @@ class Database:
         self.experiments.insert_one(
             {
                 "_id": short_experiment_id(),
+                "type": "experiment",
                 "path": full_path,
                 "created_at": datetime.now(),
                 "data": serialize(data, self.db),
@@ -114,14 +129,16 @@ class Database:
             }
         )
         return experiment_id
-    
+
     def update_experiment_notes(self, path: list[str], notes: dict):
         self.ensure_path_exists(path)
         self.experiments.update_one({"path": path}, {"$set": {"notes": notes}})
-    
+
     def add_experiment_data(self, path: list[str], key: str, value: any):
         self.ensure_path_exists(path)
-        self.experiments.update_one({"path": path}, {"$set": {f"data.{key}": serialize(value, self.db)}})
+        self.experiments.update_one(
+            {"path": path}, {"$set": {f"data.{key}": serialize(value, self.db)}}
+        )
 
     def count_experiments(self, path: list[str]) -> int:
         query = {
@@ -132,109 +149,121 @@ class Database:
             query[f"path.{len(path) - 1}"] = path[-1]
         return self.experiments.count_documents(query)
 
-    def delete(self, path: list[str]):
-        dir_doc = self.directories.find_one({"path": path})
-        if dir_doc:
-            dir_query = {
-                "$expr": {
-                    "$and": [
-                        {"$gte": [{"$size": "$path"}, len(path)]},
-                        {"$eq": [{"$slice": ["$path", len(path)]}, path]},
-                    ]
-                }
+    def _build_path_prefix_query(self, path: list[str]) -> dict:
+        """Build a query matching documents with paths starting with the given prefix."""
+        return {
+            "$expr": {
+                "$and": [
+                    {"$gte": [{"$size": "$path"}, len(path)]},
+                    {"$eq": [{"$slice": ["$path", len(path)]}, path]},
+                ]
             }
-            self.directories.delete_many(dir_query)
+        }
 
-            exp_query = {
-                "$expr": {
-                    "$and": [
-                        {"$gte": [{"$size": "$path"}, len(path)]},
-                        {"$eq": [{"$slice": ["$path", len(path)]}, path]},
-                    ]
-                }
-            }
-            exps = list(self.experiments.find(exp_query))
-            for exp in exps:
-                cleanup_array_files(exp, self.db)
-            self.experiments.delete_many(exp_query)
-            return
+    def _get_collection_counts(self, dir_query: dict, exp_query: dict) -> dict:
+        """Get counts of directories and experiments matching given queries."""
+        return {
+            "directories": self.directories.count_documents(dir_query),
+            "experiments": self.experiments.count_documents(exp_query),
+        }
 
-        exp_doc = self.experiments.find_one({"path": path})
-        if exp_doc:
-            cleanup_array_files(exp_doc, self.db)
-            self.experiments.delete_one({"path": path})
-            return
+    def _update_paths(
+        self, collection, query: dict, src_path: list[str], dest_path: list[str]
+    ):
+        """Update paths for all documents matching the query."""
+        for doc in collection.find(query, {"_id": 1, "path": 1}):
+            new_path = dest_path + doc["path"][len(src_path) :]
+            collection.update_one({"_id": doc["_id"]}, {"$set": {"path": new_path}})
 
-        raise Exception(f"Path {path} does not exist")
+    def delete(self, path: list[str], dry_run: bool = False):
+        # Check for wildcard to delete all items in a directory
+        if len(path) > 0 and path[-1] == "*":
+            # Ensure wildcard is only used in the last position
+            for i in range(len(path) - 1):
+                if "*" in path[i]:
+                    raise Exception(
+                        f"Wildcard (*) can only be used in the last position of a path"
+                    )
 
-    def move(self, src_path: list[str], dest_path: list[str]):
+            dir_path = path[:-1]
+            if not self.dir_exists(dir_path):
+                raise Exception(f"Directory {join_path(dir_path)} does not exist")
+
+            # Get all immediate children and count/delete them
+            items = self.list_dir(dir_path)
+            if dry_run:
+                affected_counts = {"experiments": 0, "directories": 0}
+                for item in items:
+                    item_counts = self.delete(item["path"], dry_run=True)
+                    affected_counts["experiments"] += item_counts["experiments"]
+                    affected_counts["directories"] += item_counts["directories"]
+                return affected_counts
+            else:
+                for item in items:
+                    self.delete(item["path"])
+                return None
+
+        # Unified query building
+        path_query = self._build_path_prefix_query(path)
+
+        if dry_run:
+            return self._get_collection_counts(path_query, path_query)
+
+        # Unified cleanup and deletion
+        exps = list(self.experiments.find(path_query, {"_id": 0, "data": 1}))
+        for exp in exps:
+            cleanup_array_files(exp, self.db)
+
+        self.experiments.delete_many(path_query)
+        self.directories.delete_many(path_query)
+        return None
+
+    def move(self, src_path: list[str], dest_path: list[str], dry_run: bool = False):
         if len(src_path) == 0:
             raise Exception("Cannot move the root directory")
 
-        src_dir = self.directories.find_one({"path": src_path})
-        src_exp = None
-        if not src_dir:
-            src_exp = self.experiments.find_one({"path": src_path})
-            if not src_exp:
-                raise Exception(f"Source path {src_path} does not exist")
-
-        if len(dest_path) > 0 and not self.dir_exists(dest_path[:-1]):
-            raise Exception(
-                f"Destination parent directory {dest_path[:-1]} does not exist"
-            )
-
-        dest_exists = self.path_exists(dest_path)
-
-        if dest_exists:
-            dest_dir = self.directories.find_one({"path": dest_path})
-            if dest_dir:
-                new_dest_path = dest_path + [src_path[-1]]
-
-                if self.path_exists(new_dest_path):
-                    raise Exception(f"Destination path {new_dest_path} already exists")
-
-                dest_path = new_dest_path
-            else:
+        # Handle wildcard in source path
+        if len(src_path) > 0 and src_path[-1] == "*":
+            src_dir_path = src_path[:-1]
+            if not self.dir_exists(src_dir_path):
                 raise Exception(
-                    f"Destination path {dest_path} already exists and is not a directory"
+                    f"Source directory {join_path(src_dir_path)} does not exist"
                 )
 
-        if src_dir:
-            dir_query = {
-                "$expr": {
-                    "$and": [
-                        {"$gte": [{"$size": "$path"}, len(src_path)]},
-                        {"$eq": [{"$slice": ["$path", len(src_path)]}, src_path]},
-                    ]
-                }
-            }
-            dirs = list(self.directories.find(dir_query))
-            for d in dirs:
-                old_path = d["path"]
-                new_path = dest_path + old_path[len(src_path) :]
-                self.directories.update_one(
-                    {"_id": d["_id"]}, {"$set": {"path": new_path}}
+            # Ensure destination is a directory
+            if not self.dir_exists(dest_path):
+                raise Exception(
+                    f"Destination {join_path(dest_path)} must be an existing directory when moving with wildcard"
                 )
 
-            exp_query = {
-                "$expr": {
-                    "$and": [
-                        {"$gte": [{"$size": "$path"}, len(src_path)]},
-                        {"$eq": [{"$slice": ["$path", len(src_path)]}, src_path]},
-                    ]
-                }
-            }
-            exps = list(self.experiments.find(exp_query))
-            for e in exps:
-                old_path = e["path"]
-                new_path = dest_path + old_path[len(src_path) :]
-                self.experiments.update_one(
-                    {"_id": e["_id"]}, {"$set": {"path": new_path}}
-                )
-        else:
-            self.experiments.update_one(
-                {"_id": src_exp["_id"]}, {"$set": {"path": dest_path}}
-            )
+            # Move all immediate children
+            items = self.list_dir(src_dir_path)
+            if dry_run:
+                affected_counts = {"experiments": 0, "directories": 0}
+                for item in items:
+                    item_path = item["path"]
+                    item_counts = self.move(
+                        item_path, dest_path + [item_path[-1]], dry_run=True
+                    )
+                    affected_counts["experiments"] += item_counts["experiments"]
+                    affected_counts["directories"] += item_counts["directories"]
+                return affected_counts
+            else:
+                for item in items:
+                    item_path = item["path"]
+                    self.move(item_path, dest_path + [item_path[-1]])
+                return None
+
+        # Unified query building
+        path_query = self._build_path_prefix_query(src_path)
+
+        if dry_run:
+            return self._get_collection_counts(path_query, path_query)
+
+        # Unified path updates
+        self._update_paths(self.directories, path_query, src_path, dest_path)
+        self._update_paths(self.experiments, path_query, src_path, dest_path)
+        return None
 
     def get_experiments(
         self,
@@ -245,50 +274,38 @@ class Database:
         sort: list = None,
         limit: int = None,
     ):
+        final_projection = projection if projection else {}
+
         # Special case: single experiment by exact path
-        exp = self.experiments.find_one({"path": path})
+        exp = self.experiments.find_one({"path": path}, final_projection)
         if exp:
-            if projection:
-                exp = self.experiments.find_one({"path": path}, projection)
-            # Deserialize the data field
-            if "data" in exp:
-                exp["data"] = deserialize(exp["data"], self.db)
-                # For direct experiment access, promote the data fields to top level
-                return [deserialize(exp["data"], self.db)]
-            return [{}]  # Return empty data if no data field found
+            return [deserialize(exp, self.db)]
 
         if not self.dir_exists(path):
-            raise Exception(f"Path {path} does not exist")
+            raise Exception(f"Path {join_path(path)} does not exist")
 
-        base_query = {}
-        if recursive:
-            base_query = {
-                "$expr": {
-                    "$and": [
-                        {"$gt": [{"$size": "$path"}, len(path)]},
-                        {"$eq": [{"$slice": ["$path", len(path)]}, path]},
-                    ]
-                }
-            }
-        else:
-            base_query = {"path": {"$size": len(path) + 1}}
-            if len(path) > 0:
-                base_query["path"] = {"$all": path, "$size": len(path) + 1}
-                base_query[f"path.{len(path) - 1}"] = path[-1]
+        # Simplified query building
+        base_query = (
+            self._build_path_prefix_query(path)
+            if recursive
+            else {"path": {"$size": len(path) + 1, "$all": path}}
+        )
 
         final_query = merge_mongo_queries(base_query, query)
-        cursor = self.experiments.find(final_query, projection)
+        count = self.experiments.count_documents(final_query)
+        cursor = self.experiments.find(final_query, final_projection)
 
         if sort:
             cursor = cursor.sort(sort)
         if limit:
             cursor = cursor.limit(limit)
 
-        # Return only the deserialized data fields from all experiments
+        # Return only the deserialized fields from all experiments
         result = []
-        for exp in cursor:
-            if "data" in exp:
-                result.append(deserialize(exp["data"], self.db))
-            else:
-                result.append({})
+        total = min(count, limit) if limit else count
+        for i, exp in enumerate(cursor):
+            print(f"\rFetching experiments... {i+1}/{total}", end="", flush=True)
+            result.append(deserialize(exp, self.db))
+        if total > 0:
+            print()  # Add a newline after the status line
         return result

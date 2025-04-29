@@ -1,50 +1,44 @@
-from rich import print as rprint
-from rich.box import ROUNDED
-from rich.console import Console
-from rich.panel import Panel
-from rich.prompt import Prompt
-from rich.table import Table
-from rich.text import Text
+import os
+import sys
 
-console = Console()
+no_color = os.environ.get("NO_COLOR") or os.environ.get("NO_COLOR_LABDB")
+
+# ANSI color codes
+RED = "\033[91m" if not no_color else ""
+GREEN = "\033[92m" if not no_color else ""
+YELLOW = "\033[93m" if not no_color else ""
+BLUE = "\033[94m" if not no_color else ""
+BOLD = "\033[1m" if not no_color else ""
+RESET = "\033[0m" if not no_color else ""
 
 
 def error(message):
-    console.print(f"[bold red]{message}[/bold red]")
+    print(f"{BOLD}{RED}{message}{RESET}")
 
 
 def success(message):
-    console.print(f"[green]{message}[/green]")
+    print(f"{GREEN}{message}{RESET}")
 
 
 def warning(message):
-    console.print(f"[yellow]{message}[/yellow]")
+    print(f"{YELLOW}{message}{RESET}")
 
 
 def info(message):
-    console.print(message)
+    print(message)
 
 
 def key_value(key, value):
-    console.print(f"{key}: [blue]{value}[/blue]")
+    print(f"{key}: {BLUE}{value}{RESET}")
+
+
+def bold(message):
+    print(f"{BOLD}{message}{RESET}")
 
 
 def get_input(prompt_text, default=None):
     if default is not None:
-        return (
-            Prompt.ask(f"{prompt_text} [blue]\[default: {default}][/blue]") or default
-        )
+        user_input = input(f"{prompt_text} {BLUE}[default: {default}]{RESET}: ")
+        return user_input if user_input else default
     else:
-        return Prompt.ask(f"{prompt_text}")
-
-
-def display_table(headers, rows):
-    table = Table(show_header=True, box=ROUNDED)
-
-    for header in headers:
-        table.add_column(header)
-
-    for row in rows:
-        table.add_row(*[str(item) for item in row])
-
-    console.print(table)
+        return input(f"{prompt_text}: ")
