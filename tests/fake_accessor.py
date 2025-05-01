@@ -14,7 +14,7 @@ profiler.enable()
 query = ExperimentQuery()
 
 # Get all experiments from the session
-experiments = query.get_experiments_from_session("sua7710hif")
+experiments = query.get_experiments("/test")
 
 # Access the numpy arrays from each experiment
 for exp in experiments:
@@ -24,8 +24,8 @@ for exp in experiments:
         numpy_array = exp["data"]["test"]
         # Do something with the array to ensure it's loaded
         array_sum = np.sum(numpy_array)
-        print(f"Experiment {exp['_id']}: Array sum = {array_sum}")
-        query.experiment_log_data(exp["_id"], "sum", int(array_sum))
+        print(f"Experiment {exp['path']}: Array sum = {array_sum}")
+        query.experiment_log_data(exp["path"], "sum", int(array_sum))
 
     elapsed = time.time() - start_time
     print(f"Iteration completed in {elapsed:.2f} seconds")
@@ -34,5 +34,5 @@ for exp in experiments:
 profiler.disable()
 s = StringIO()
 ps = pstats.Stats(profiler, stream=s).sort_stats("cumulative")
-ps.print_stats(20)  # Print top 20 functions by cumulative time
+ps.print_stats(50)
 print(s.getvalue())

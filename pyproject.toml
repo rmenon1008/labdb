@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "labdb"
-version = "0.1.0"
+version = "1.0.0"
 description = "MongoDB experiment management tool"
 authors = [
-    {name = "Experiment Author", email = "author@example.com"}
+    {name = "Rohan Menon", email = "rmenon1008@gmail.com"}
 ]
 requires-python = ">=3.8"
 dependencies = [
@@ -16,9 +16,8 @@ dependencies = [
     "Pygments==2.19.1",
     "pymongo==4.11.3",
     "PyYAML==6.0.2",
-    "rich==13.9.4",
-    "webdavclient3==3.14.6",
-    "numpy>=1.26.1"
+    "numpy>=1.26.1",
+    "argcomplete>=3.2.3"
 ]
 
 [project.scripts]

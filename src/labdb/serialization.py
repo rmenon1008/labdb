@@ -1,16 +1,18 @@
 import io
 import os
+import random
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, Union
 
 import numpy as np
-from webdav3.client import Client as WebDAVClient
 from bson.binary import Binary
 from gridfs import GridFS
 from pymongo import MongoClient
 
 from labdb.config import load_config
 from labdb.utils import long_id
+
+DEBUG = False
 
 
 def serialize_numpy_array(
@@ -33,11 +35,21 @@ def serialize_numpy_array(
     buffer.seek(0)
     data = buffer.getvalue()
 
-    # Check if the data exceeds 16MB (MongoDB's BSON document size limit)
-    if len(data) > 16 * 1024 * 1024:
+    if DEBUG:
+        print(
+            f"Serializing numpy array of shape {arr.shape}, dtype {arr.dtype}, size {len(data)/1024:.2f} KB"
+        )
+
+    # Check if the data exceeds 5MB
+    if len(data) > 5 * 1024 * 1024:
         # If no storage type specified, get it from config
         if storage_type is None:
             storage_type = config.get("large_file_storage", "none")
+
+        if DEBUG:
+            print(
+                f"Large array detected ({len(data)/1048576:.2f} MB), using storage type: {storage_type}"
+            )
 
         if storage_type == "none":
             raise ValueError(
@@ -60,56 +72,15 @@ def serialize_numpy_array(
             with open(file_path, "wb") as f:
                 f.write(data)
 
+            if DEBUG:
+                print(
+                    f"Saved array to local file: {file_path} ({len(data)/1024:.2f} KB)"
+                )
+
             return {
                 "__numpy_array__": True,
                 "__storage_type__": "local",
                 "file_path": str(file_path),
-                "dtype": str(arr.dtype),
-                "shape": arr.shape,
-                "__compressed__": compress,
-            }
-        elif storage_type == "webdav":
-            if not all(k in config for k in ["webdav_url", "webdav_username", "webdav_password", "webdav_root"]):
-                raise ValueError(
-                    "WebDAV storage not configured correctly. Please set 'webdav_url', 'webdav_username', 'webdav_password', and 'webdav_root' in config."
-                )
-            
-            webdav_options = {
-                'webdav_hostname': config["webdav_url"],
-                'webdav_login': config["webdav_username"],
-                'webdav_password': config["webdav_password"],
-            }
-            
-            client = WebDAVClient(webdav_options)
-            root_path = config["webdav_root"]
-            
-            # Ensure the root directory exists
-            if not client.check(root_path):
-                client.mkdir(root_path)
-            
-            file_name = f"numpy_array_{long_id()}.{'npz' if compress else 'npy'}"
-            remote_path = f"{root_path}/{file_name}"
-            
-            # Upload to WebDAV
-            buffer.seek(0)
-            temp_file_path = f"/tmp/numpy_array_{long_id()}.{'npz' if compress else 'npy'}"
-            with open(temp_file_path, 'wb') as f:
-                f.write(buffer.getvalue())
-            
-            try:
-                client.upload(remote_path, temp_file_path)
-            finally:
-                # Clean up the temporary file
-                if os.path.exists(temp_file_path):
-                    os.remove(temp_file_path)
-            
-            return {
-                "__numpy_array__": True,
-                "__storage_type__": "webdav",
-                "webdav_url": config["webdav_url"],
-                "webdav_username": config["webdav_username"],
-                "webdav_password": config["webdav_password"],
-                "remote_path": remote_path,
                 "dtype": str(arr.dtype),
                 "shape": arr.shape,
                 "__compressed__": compress,
@@ -120,6 +91,16 @@ def serialize_numpy_array(
             file_id = fs.put(
                 data, filename=f"numpy_array_{long_id()}.{'npz' if compress else 'npy'}"
             )
+
+            if DEBUG:
+                print(
+                    f"Saved array to GridFS with ID: {file_id} ({len(data)/1024:.2f} KB)"
+                )
+
+            # Add to cache if using GridFS
+            config = load_config() or {}
+            if config.get("local_cache_enabled"):
+                _save_to_cache(data, file_id, config)
 
             return {
                 "__numpy_array__": True,
@@ -135,6 +116,9 @@ def serialize_numpy_array(
             )
     else:
         # Use standard BSON Binary for smaller arrays
+        if DEBUG:
+            print(f"Using BSON Binary storage for array ({len(data)/1024:.2f} KB)")
+
         return {
             "__numpy_array__": True,
             "__storage_type__": "binary",
@@ -153,13 +137,40 @@ def deserialize_numpy_array(data: Dict[str, Any], db: MongoClient = None) -> np.
         "__compressed__", True
     )  # Default to True for backward compatibility
 
-    if storage_type == "gridfs" and db is not None:
-        # Retrieve from GridFS
-        fs = GridFS(db)
-        grid_out = fs.get(data["file_id"])
-        array_data = grid_out.read()
+    if DEBUG:
+        shape = data.get("shape")
+        dtype = data.get("dtype")
+        print(
+            f"Deserializing numpy array of shape {shape}, dtype {dtype}, storage type: {storage_type}"
+        )
 
-        # Load the array from the data
+    if storage_type == "gridfs" and db is not None:
+        config = load_config() or {}
+
+        # Try cache first
+        cached_data = _read_from_cache(data["file_id"], config)
+        if cached_data:
+            array_data = cached_data
+            if DEBUG:
+                print(
+                    f"Loaded array from cache, file_id: {data['file_id']} ({len(array_data)/1024:.2f} KB)"
+                )
+        else:
+            # Retrieve from GridFS
+            fs = GridFS(db)
+            grid_out = fs.get(data["file_id"])
+            array_data = grid_out.read()
+
+            if DEBUG:
+                print(
+                    f"Loaded array from GridFS, file_id: {data['file_id']} ({len(array_data)/1024:.2f} KB)"
+                )
+
+            # Save to cache
+            if config.get("local_cache_enabled"):
+                _save_to_cache(array_data, data["file_id"], config)
+
+        # Load array from the data
         buffer = io.BytesIO(array_data)
         if is_compressed:
             arr = np.load(buffer)["arr"]
@@ -170,38 +181,24 @@ def deserialize_numpy_array(data: Dict[str, Any], db: MongoClient = None) -> np.
         file_path = Path(data["file_path"])
         if not file_path.exists():
             raise FileNotFoundError(f"Array file not found at {file_path}")
+
+        if DEBUG:
+            file_size = file_path.stat().st_size
+            print(
+                f"Loading array from local file: {file_path} ({file_size/1024:.2f} KB)"
+            )
+
         if is_compressed:
             arr = np.load(file_path)["arr"]
         else:
             arr = np.load(file_path)
-    elif storage_type == "webdav":
-        # Load from WebDAV
-        webdav_options = {
-            'webdav_hostname': data["webdav_url"],
-            'webdav_login': data["webdav_username"],
-            'webdav_password': data["webdav_password"],
-        }
-        
-        client = WebDAVClient(webdav_options)
-        remote_path = data["remote_path"]
-        
-        # Download from WebDAV
-        temp_file_path = f"/tmp/numpy_array_{long_id()}.{'npz' if is_compressed else 'npy'}"
-        try:
-            client.download(remote_path, temp_file_path)
-            
-            # Load the array from the temporary file
-            if is_compressed:
-                arr = np.load(temp_file_path)["arr"]
-            else:
-                arr = np.load(temp_file_path)
-        finally:
-            # Clean up the temporary file
-            if os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
     else:
         # Get the binary data directly from BSON
         array_data = data["data"]
+
+        if DEBUG:
+            print(f"Loading array from BSON Binary ({len(array_data)/1024:.2f} KB)")
+
         buffer = io.BytesIO(array_data)
         if is_compressed:
             arr = np.load(buffer)["arr"]
@@ -218,24 +215,25 @@ def deserialize_numpy_array(data: Dict[str, Any], db: MongoClient = None) -> np.
         if dtype_str != str(arr.dtype):
             arr = arr.astype(np.dtype(dtype_str))
 
+    if DEBUG:
+        print(
+            f"Successfully deserialized array with shape {arr.shape}, dtype {arr.dtype}"
+        )
+
     return arr
 
 
-def serialize(
-    obj: Any, db: MongoClient = None, storage_type: str = None
-) -> Any:
+def serialize(obj: Any, db: MongoClient, storage_type: str = None) -> Any:
     if isinstance(obj, np.ndarray):
         return serialize_numpy_array(obj, db, storage_type)
     elif isinstance(obj, dict):
-        return {
-            k: serialize(v, db, storage_type) for k, v in obj.items()
-        }
+        return {k: serialize(v, db, storage_type) for k, v in obj.items()}
     elif isinstance(obj, (list, tuple)):
         return [serialize(v, db, storage_type) for v in obj]
     return obj
 
 
-def deserialize(obj: Any, db: MongoClient = None) -> Any:
+def deserialize(obj: Any, db: MongoClient) -> Any:
     if isinstance(obj, dict):
         if obj.get("__numpy_array__"):
             return deserialize_numpy_array(obj, db)
@@ -255,6 +253,8 @@ def cleanup_array_files(obj: Any, db: MongoClient = None) -> None:
                 fs = GridFS(db)
                 try:
                     fs.delete(obj["file_id"])
+                    if DEBUG:
+                        print(f"Deleted array from GridFS, file_id: {obj['file_id']}")
                 except Exception:
                     pass  # Ignore errors if file doesn't exist
             elif storage_type == "local":
@@ -262,21 +262,12 @@ def cleanup_array_files(obj: Any, db: MongoClient = None) -> None:
                 try:
                     file_path = Path(obj["file_path"])
                     if file_path.exists():
+                        if DEBUG:
+                            file_size = file_path.stat().st_size
+                            print(
+                                f"Deleting local array file: {file_path} ({file_size/1024:.2f} KB)"
+                            )
                         file_path.unlink()
-                except Exception:
-                    pass  # Ignore errors if file doesn't exist
-            elif storage_type == "webdav":
-                # Delete from WebDAV
-                try:
-                    webdav_options = {
-                        'webdav_hostname': obj["webdav_url"],
-                        'webdav_login': obj["webdav_username"],
-                        'webdav_password': obj["webdav_password"],
-                    }
-                    client = WebDAVClient(webdav_options)
-                    remote_path = obj["remote_path"]
-                    if client.check(remote_path):
-                        client.clean(remote_path)
                 except Exception:
                     pass  # Ignore errors if file doesn't exist
         else:
@@ -286,3 +277,90 @@ def cleanup_array_files(obj: Any, db: MongoClient = None) -> None:
     elif isinstance(obj, (list, tuple)):
         for value in obj:
             cleanup_array_files(value, db)
+
+
+def _get_cache_path(config: dict, file_id: Any) -> Path:
+    """Get cache path for a file ID"""
+    cache_dir = Path(config.get("local_cache_path", "/tmp/labdb-cache"))
+    return cache_dir / str(file_id)
+
+
+def _save_to_cache(data: bytes, file_id: Any, config: dict):
+    """Save data to local cache"""
+    if not config.get("local_cache_enabled"):
+        return
+
+    cache_path = _get_cache_path(config, file_id)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(cache_path, "wb") as f:
+        f.write(data)
+
+    if DEBUG:
+        print(f"Saved array to cache: {cache_path} ({len(data)/1024:.2f} KB)")
+
+    # Update metadata and manage cache size
+    _manage_cache_size(config)
+
+
+def _read_from_cache(file_id: Any, config: dict) -> bytes | None:
+    """Try to read from cache, returns None if not found"""
+    if not config.get("local_cache_enabled"):
+        return None
+
+    cache_path = _get_cache_path(config, file_id)
+    if cache_path.exists():
+        # Update access time
+        cache_path.touch()
+        data = cache_path.read_bytes()
+        if DEBUG:
+            print(f"Read array from cache: {cache_path} ({len(data)/1024:.2f} KB)")
+        return data
+    return None
+
+
+def _manage_cache_size(config: dict):
+    """Enforce cache size limits with LRU-random hybrid policy"""
+    cache_dir = Path(config.get("local_cache_path", "/tmp/labdb-cache"))
+    max_size = int(config.get("local_cache_max_size_mb", 1024)) * 1024 * 1024
+
+    # Get all cache files with access times
+    files = []
+    total_size = 0
+    for f in cache_dir.glob("*"):
+        if f.is_file():
+            stat = f.stat()
+            files.append((stat.st_atime, f))
+            total_size += stat.st_size
+
+    if total_size > max_size:
+        if DEBUG:
+            print(
+                f"Cache size ({total_size/1048576:.2f} MB) exceeds limit, using LRU-random eviction"
+            )
+
+        # Sort by access time (oldest first)
+        files.sort()
+
+        # Process in groups of 2 LRU candidates
+        while total_size > max_size and files:
+            # Take 2 oldest candidates
+            candidates = files[:2]
+            if not candidates:
+                break
+
+            # Randomly select one to evict
+            selected = random.choice(candidates)
+            selected_time, selected_file = selected
+
+            # Remove from files list and update total size
+            files.remove(selected)
+            file_size = selected_file.stat().st_size
+            total_size -= file_size
+
+            if DEBUG:
+                print(
+                    f"Evicting randomly selected from 2 LRU candidates: {selected_file.name} ({file_size/1024:.2f} KB)"
+                )
+
+            selected_file.unlink()

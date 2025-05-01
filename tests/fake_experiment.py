@@ -12,17 +12,20 @@ profiler = cProfile.Profile()
 profiler.enable()
 
 # Create a new experiment
-logger = ExperimentLogger(session_id="sua7710hif")
+logger = ExperimentLogger("/test", notes_mode="none")
 
 for i in range(5):
-    experiment_id = logger.new_experiment(interactive=False)
+    experiment_id = logger.new_experiment()
 
     # Set some values
-    t = np.int32
+    t = np.float32
     size = 100_000_000
-    numpy_array = np.random.randint(np.iinfo(t).min, np.iinfo(t).max, size=size, dtype=t)
+    numpy_array = np.empty(size, dtype=t)
+    numpy_array.fill(0.5)  # Fill with a constant value (fastest option)
     logger.log_data("test", numpy_array)
     logger.log_note("notes", "This is a test experiment")
+
+    # Expected size is 100_000_000 * 4 / 1024 / 1024 = 381.47 MB
 
 # Disable profiler and print stats
 profiler.disable()

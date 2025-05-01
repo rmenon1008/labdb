@@ -1,146 +1,153 @@
 import argparse
+import os
 import sys
+import traceback
 
 from labdb.cli_commands import (
-    cli_config_setup,
-    cli_experiment_create,
-    cli_experiment_delete,
-    cli_experiment_edit,
-    cli_experiment_list,
-    cli_session_create,
-    cli_session_delete,
-    cli_session_edit,
-    cli_session_list,
-    cli_setup_check,
-    cli_setup_show,
+    cli_cd,
+    cli_edit,
+    cli_ls,
+    cli_mkdir,
+    cli_mv,
+    cli_pwd,
+    cli_rm,
+    cli_setup,
 )
-from labdb.cli_formatting import error
-
-
-class CommandError(Exception):
-    """Exception raised for CLI command errors"""
-
-    pass
+from labdb.cli_completions import (
+    get_path_completions,
+    install_completions,
+    setup_completions,
+)
+from labdb.cli_formatting import error, info, success, warning
+from labdb.cli_json_editor import edit
+from labdb.config import (
+    CONFIG_FILE,
+    CONFIG_SCHEMA,
+    get_current_path,
+    load_config,
+    save_config,
+    update_current_path,
+)
+from labdb.database import Database
+from labdb.utils import (
+    date_to_relative_time,
+    dict_str,
+    join_path,
+    resolve_path,
+    split_path,
+)
 
 
 def add_command(subparsers, name, func, help_text, **kwargs):
     parser = subparsers.add_parser(name, help=help_text)
     for arg_name, arg_props in kwargs.items():
-        parser.add_argument(arg_name, **arg_props)
+        # Add path completer to path arguments
+        if arg_name in ['path', 'src_path', 'dest_path']:
+            parser.add_argument(arg_name, **arg_props).completer = get_path_completions
+        else:
+            parser.add_argument(arg_name, **arg_props)
     parser.set_defaults(func=func)
     return parser
 
 
 def main():
-    parser = argparse.ArgumentParser(description="MongoDB experiment tool")
+    parser = argparse.ArgumentParser(description="MongoDB experiment database tool")
+    
+    # Add global options
+    parser.add_argument("--config", action="store_true",
+                      help="Setup database connection and configuration")
+    parser.add_argument("--setup-completions", action="store_true", 
+                      help="Install tab completion for the current shell")
+    
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
-    # Config command
-    config_parser = subparsers.add_parser("config", help="Configuration management")
-    config_subs = config_parser.add_subparsers(dest="subcommand")
+    # Filesystem-like commands
     add_command(
-        config_subs,
-        "setup",
-        cli_config_setup,
-        "Setup a new MongoDB connection with connection string, database name, and storage options",
+        subparsers,
+        "pwd",
+        cli_pwd,
+        "Show current path",
     )
+    
     add_command(
-        config_subs,
-        "check",
-        cli_setup_check,
-        "Verify the MongoDB connection is working properly with the current configuration",
+        subparsers,
+        "cd",
+        cli_cd,
+        "Change current directory",
+        **{"path": {"help": "Path to change to (default: root)", "nargs": "?"}},
     )
+    
     add_command(
-        config_subs,
-        "show",
-        cli_setup_show,
-        "Display the current MongoDB connection settings including URI, database, and storage options",
-    )
-
-    # Session command - singular form
-    session_parser = subparsers.add_parser("session", help="Session management")
-    session_subs = session_parser.add_subparsers(dest="subcommand")
-    add_command(
-        session_subs,
-        "list",
-        cli_session_list,
-        "List all available sessions with their IDs, names, creation dates, and experiment counts",
-    )
-    add_command(
-        session_subs,
-        "delete",
-        cli_session_delete,
-        "Delete a session by its ID, including all associated experiments and their data",
-        **{"id": {"help": "Session ID to delete"}},
-    )
-    add_command(
-        session_subs, 
-        "create", 
-        cli_session_create, 
-        "Create a new session with a name and optional description in the JSON editor",
-    )
-    add_command(
-        session_subs,
-        "edit",
-        cli_session_edit,
-        "Edit an existing session's properties by ID using the JSON editor (uses most recent session if ID not provided)",
-        **{"id": {"help": "Session ID to edit (optional, defaults to most recent)", "nargs": "?"}},
+        subparsers,
+        "ls",
+        cli_ls,
+        "List contents of a path",
+        **{"path": {"help": "Path to list (default: current path)", "nargs": "?"}},
     )
 
-    # Experiment command - singular form
-    experiment_parser = subparsers.add_parser(
-        "experiment", help="Experiment management"
-    )
-    experiment_subs = experiment_parser.add_subparsers(dest="subcommand")
     add_command(
-        experiment_subs,
-        "list",
-        cli_experiment_list,
-        "List all experiments with creation dates, IDs, and notes, optionally filtered by session ID",
-        **{"session_id": {"help": "Optional session ID to list only experiments for that session", "nargs": "?"}},
+        subparsers,
+        "mkdir",
+        cli_mkdir,
+        "Create a new directory",
+        **{"path": {"help": "Path to create"}},
     )
+    
     add_command(
-        experiment_subs,
-        "delete",
-        cli_experiment_delete,
-        "Delete an experiment by its ID, including all related data and measurements",
-        **{"id": {"help": "Experiment ID to delete"}},
-    )
-    add_command(
-        experiment_subs,
-        "create",
-        cli_experiment_create,
-        "Create a new experiment with notes in an existing session using the JSON editor",
+        subparsers,
+        "mv",
+        cli_mv,
+        "Move a path to a new location",
         **{
-            "session_id": {
-                "help": "Optional session ID to create the experiment in (defaults to most recent session)",
-                "nargs": "?",
-            }
+            "src_path": {"help": "Source path to move"},
+            "dest_path": {"help": "Destination path"},
+            "--dry-run": {
+                "help": "Only show what would be moved without actually moving",
+                "action": "store_true",
+                "dest": "dry_run",
+            },
         },
     )
+
     add_command(
-        experiment_subs,
-        "edit",
-        cli_experiment_edit,
-        "Edit an existing experiment's notes by ID using the JSON editor (uses most recent experiment if ID not provided)",
-        **{"id": {"help": "Experiment ID to edit (optional, defaults to most recent)", "nargs": "?"}},
+        subparsers,
+        "rm",
+        cli_rm,
+        "Remove a path (always recursive)",
+        **{
+            "path": {"help": "Path to remove"},
+            "--dry-run": {
+                "help": "Only show what would be deleted without actually deleting",
+                "action": "store_true",
+                "dest": "dry_run",
+            },
+        },
     )
 
+    add_command(
+        subparsers,
+        "edit",
+        cli_edit,
+        "Edit notes for a path (directory or experiment)",
+        **{"path": {"help": "Path to edit notes for"}},
+    )
+
+    # Enable tab completion
+    setup_completions(parser)
+    
     args = parser.parse_args()
-
-    # Handle case when a command is provided but no subcommand
-    if args.command and not hasattr(args, "func"):
-        if args.command in ["config"]:
-            config_parser.print_help()
-        elif args.command in ["session"]:
-            session_parser.print_help()
-        elif args.command in ["experiment"]:
-            experiment_parser.print_help()
-        print(
-            f"\nError: A subcommand is required for '{args.command}'", file=sys.stderr
-        )
-        sys.exit(1)
-
+    
+    # Handle --setup-completions option
+    if hasattr(args, "setup_completions") and args.setup_completions:
+        install_completions()
+        return
+        
+    # Handle --config option
+    if args.config:
+        cli_setup(args)
+        return
+    
+    # Handle case when no command is provided
     if not hasattr(args, "func"):
         parser.print_help()
         sys.exit(1)
