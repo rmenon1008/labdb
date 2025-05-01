@@ -131,7 +131,7 @@ class Database:
             
         return self.directories.count_documents({"path_str": path}) > 0
 
-    def list_dir(self, path: str):
+    def list_dir(self, path: str, only_project_paths: bool = False):
         """
         List all items in a directory.
         
@@ -157,7 +157,10 @@ class Database:
         base_query = {"path_str": {"$regex": f"^{escaped_parent_path}[^/]+$"}}
 
         # Only project the fields we need
-        projection = {"_id": 0, "type": 1, "path": 1, "path_str": 1, "created_at": 1, "notes": 1}
+        if only_project_paths:
+            projection = {"_id": 0, "type": 1, "path_str": 1, "created_at": 1}
+        else:
+            projection = {"_id": 0, "type": 1, "path_str": 1, "created_at": 1, "notes": 1}
 
         # Combine results from both collections
         dir_results = list(

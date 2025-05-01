@@ -158,6 +158,7 @@ def resolve_path(current_path: str, target_path: str) -> str:
     - Absolute paths (starting with slash)
     - Relative paths (not starting with slash)
     - Parent directory references (..)
+    - Trailing slashes (normalized away)
 
     Args:
         current_path: The current directory path as a string
@@ -166,6 +167,13 @@ def resolve_path(current_path: str, target_path: str) -> str:
     Returns:
         The resolved path as a string
     """
+    # Remove trailing slashes except for root path "/"
+    if target_path.endswith("/") and target_path != "/":
+        target_path = target_path.rstrip("/")
+    
+    if current_path.endswith("/") and current_path != "/":
+        current_path = current_path.rstrip("/")
+    
     # Handle absolute paths
     if target_path.startswith("/"):
         # Return the target path directly

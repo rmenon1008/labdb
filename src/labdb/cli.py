@@ -13,6 +13,11 @@ from labdb.cli_commands import (
     cli_rm,
     cli_setup,
 )
+from labdb.cli_completions import (
+    get_path_completions,
+    install_completions,
+    setup_completions,
+)
 from labdb.cli_formatting import error, info, success, warning
 from labdb.cli_json_editor import edit
 from labdb.config import (
@@ -36,24 +41,42 @@ from labdb.utils import (
 def add_command(subparsers, name, func, help_text, **kwargs):
     parser = subparsers.add_parser(name, help=help_text)
     for arg_name, arg_props in kwargs.items():
-        parser.add_argument(arg_name, **arg_props)
+        # Add path completer to path arguments
+        if arg_name in ['path', 'src_path', 'dest_path']:
+            parser.add_argument(arg_name, **arg_props).completer = get_path_completions
+        else:
+            parser.add_argument(arg_name, **arg_props)
     parser.set_defaults(func=func)
     return parser
 
 
 def main():
     parser = argparse.ArgumentParser(description="MongoDB experiment database tool")
+    
+    # Add global options
+    parser.add_argument("--config", action="store_true",
+                      help="Setup database connection and configuration")
+    parser.add_argument("--setup-completions", action="store_true", 
+                      help="Install tab completion for the current shell")
+    
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
-    # Setup command
+    # Filesystem-like commands
     add_command(
         subparsers,
-        "setup",
-        cli_setup,
-        "Setup database connection and configuration",
+        "pwd",
+        cli_pwd,
+        "Show current path",
     )
-
-    # Filesystem-like commands
+    
+    add_command(
+        subparsers,
+        "cd",
+        cli_cd,
+        "Change current directory",
+        **{"path": {"help": "Path to change to (default: root)", "nargs": "?"}},
+    )
+    
     add_command(
         subparsers,
         "ls",
@@ -68,6 +91,22 @@ def main():
         cli_mkdir,
         "Create a new directory",
         **{"path": {"help": "Path to create"}},
+    )
+    
+    add_command(
+        subparsers,
+        "mv",
+        cli_mv,
+        "Move a path to a new location",
+        **{
+            "src_path": {"help": "Source path to move"},
+            "dest_path": {"help": "Destination path"},
+            "--dry-run": {
+                "help": "Only show what would be moved without actually moving",
+                "action": "store_true",
+                "dest": "dry_run",
+            },
+        },
     )
 
     add_command(
@@ -87,45 +126,27 @@ def main():
 
     add_command(
         subparsers,
-        "mv",
-        cli_mv,
-        "Move a path to a new location",
-        **{
-            "src_path": {"help": "Source path to move"},
-            "dest_path": {"help": "Destination path"},
-            "--dry-run": {
-                "help": "Only show what would be moved without actually moving",
-                "action": "store_true",
-                "dest": "dry_run",
-            },
-        },
-    )
-
-    add_command(
-        subparsers,
-        "pwd",
-        cli_pwd,
-        "Show current path",
-    )
-
-    add_command(
-        subparsers,
-        "cd",
-        cli_cd,
-        "Change current directory",
-        **{"path": {"help": "Path to change to (default: root)", "nargs": "?"}},
-    )
-
-    add_command(
-        subparsers,
         "edit",
         cli_edit,
         "Edit notes for a path (directory or experiment)",
         **{"path": {"help": "Path to edit notes for"}},
     )
 
+    # Enable tab completion
+    setup_completions(parser)
+    
     args = parser.parse_args()
-
+    
+    # Handle --setup-completions option
+    if hasattr(args, "setup_completions") and args.setup_completions:
+        install_completions()
+        return
+        
+    # Handle --config option
+    if args.config:
+        cli_setup(args)
+        return
+    
     # Handle case when no command is provided
     if not hasattr(args, "func"):
         parser.print_help()
