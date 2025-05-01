@@ -1,5 +1,6 @@
 import functools
 import json
+import os
 import sys
 import traceback
 
@@ -19,6 +20,7 @@ from labdb.database import Database
 from labdb.utils import (
     date_to_relative_time,
     dict_str,
+    get_path_name,
     join_path,
     resolve_path,
     split_path,
@@ -168,18 +170,20 @@ def cli_ls(args):
 
     items = db.list_dir(path)
     if not items:
-        info(f"No items in {join_path(path)}")
+        info(f"No items in {path}")
         return
+        
     # Print header for the table
-    path_str = join_path(path)
-    if len(path_str) > 21:
-        path_str = "..." + path_str[-18:]
-    bold(f"{'Listing ' + path_str:<30} {'Created':<20} {'Notes':<70}")
+    max_width = os.get_terminal_size().columns
+    path_display = path
+    if len(path_display) > 20:
+        path_display = "..." + path_display[-17:]
+    bold(f"{'Listing ' + path_display:<29} {'Created':<23} {'Notes':<{max_width - 30 - 24}}")
     for item in items:
-        item_path = item["path"][-1]
-        item_path += "/" if item["type"] == "directory" else ""
+        item_name = get_path_name(item["path_str"])
+        item_name += "/" if item["type"] == "directory" else ""
         print(
-            f"{item_path:<30} {date_to_relative_time(item['created_at']):<20} {(dict_str(item['notes']) if item['notes'] else '')[:70]}"
+            f"{item_name:<29} {date_to_relative_time(item['created_at']):<23} {(dict_str(item['notes']) if item['notes'] else '')[:max_width - 30 - 24]}"
         )
 
 
@@ -192,7 +196,7 @@ def cli_mkdir(args):
     try:
         path = resolve_path(current_path, args.path)
         db.create_dir(path)
-        info(f"Created directory {join_path(path)}")
+        info(f"Created directory {path}")
     except ValueError as e:
         error(f"Invalid path: {e}")
     except Exception as e:
@@ -220,13 +224,13 @@ def cli_rm(args):
         if hasattr(args, "dry_run") and args.dry_run:
             exp_text = f"{affected_counts['experiments']} experiment{'s' if affected_counts['experiments'] != 1 else ''}"
             dir_text = f"{affected_counts['directories']} director{'ies' if affected_counts['directories'] != 1 else 'y'}"
-            info(f"Would delete {exp_text} and {dir_text} from {join_path(path)}")
+            info(f"Would delete {exp_text} and {dir_text} from {path}")
             return
 
         # Confirm with user before proceeding
         exp_text = f"{affected_counts['experiments']} experiment{'s' if affected_counts['experiments'] != 1 else ''}"
         dir_text = f"{affected_counts['directories']} director{'ies' if affected_counts['directories'] != 1 else 'y'}"
-        confirm_message = f'Deleting "{join_path(path)}" will result in {exp_text} and {dir_text} being deleted'
+        confirm_message = f'Deleting "{path}" will result in {exp_text} and {dir_text} being deleted'
 
         error(confirm_message)
         confirmation = input("Proceed? (y/n): ").strip().lower()
@@ -236,7 +240,7 @@ def cli_rm(args):
 
         # Proceed with actual deletion
         db.delete(path)
-        info(f"Removed {join_path(path)}")
+        info(f"Removed {path}")
     except ValueError as e:
         error(f"Invalid path: {e}")
     except Exception as e:
@@ -266,14 +270,14 @@ def cli_mv(args):
             exp_text = f"{affected_counts['experiments']} experiment{'s' if affected_counts['experiments'] != 1 else ''}"
             dir_text = f"{affected_counts['directories']} director{'ies' if affected_counts['directories'] != 1 else 'y'}"
             info(
-                f"Would move {exp_text} and {dir_text} from {join_path(src_path)} to {join_path(dest_path)}"
+                f"Would move {exp_text} and {dir_text} from {src_path} to {dest_path}"
             )
             return
 
         # Confirm with user before proceeding
         exp_text = f"{affected_counts['experiments']} experiment{'s' if affected_counts['experiments'] != 1 else ''}"
         dir_text = f"{affected_counts['directories']} director{'ies' if affected_counts['directories'] != 1 else 'y'}"
-        confirm_message = f'Moving "{join_path(src_path)}" to "{join_path(dest_path)}" will move {exp_text} and {dir_text}'
+        confirm_message = f'Moving "{src_path}" to "{dest_path}" will move {exp_text} and {dir_text}'
 
         print(confirm_message)
         confirmation = input("Proceed? (y/n): ").strip().lower()
@@ -283,7 +287,7 @@ def cli_mv(args):
 
         # Proceed with actual move
         db.move(src_path, dest_path)
-        info(f"Moved {join_path(src_path)} to {join_path(dest_path)}")
+        info(f"Moved {src_path} to {dest_path}")
     except ValueError as e:
         error(f"Invalid path: {e}")
     except Exception as e:
@@ -293,7 +297,7 @@ def cli_mv(args):
 @cli_operation
 def cli_pwd(args):
     current_path = get_current_path()
-    info(join_path(current_path))
+    info(current_path)
 
 
 @cli_operation
@@ -304,7 +308,7 @@ def cli_cd(args):
 
     if not args.path:
         # Reset to root
-        update_current_path([])
+        update_current_path("/")
         info("Changed to /")
         return
 
@@ -313,11 +317,11 @@ def cli_cd(args):
 
         # Check if directory exists
         if not db.dir_exists(path):
-            error(f"Directory {join_path(path)} does not exist")
+            error(f"Directory {path} does not exist")
             return
 
         update_current_path(path)
-        info(f"Changed to {join_path(path)}")
+        info(f"Changed to {path}")
     except ValueError as e:
         error(f"Invalid path: {e}")
 
@@ -338,32 +342,32 @@ def cli_edit(args):
         # Check if it's a directory or experiment
         if db.dir_exists(path):
             # Get the current notes for this directory
-            dir_doc = db.directories.find_one({"path": path})
+            dir_doc = db.directories.find_one({"path_str": path})
             if not dir_doc:
-                error(f"Directory {join_path(path)} not found")
+                error(f"Directory {path} not found")
                 return
 
             notes = dir_doc.get("notes", {})
             edited_notes = edit(
                 notes,
-                title=f"Edit directory notes: {join_path(path)}",
+                title=f"Edit directory notes: {path}",
             )
             db.update_dir_notes(path, edited_notes)
-            success(f"Updated notes for directory {join_path(path)}")
+            success(f"Updated notes for directory {path}")
         else:
             # It's an experiment
-            exp_doc = db.experiments.find_one({"path": path})
+            exp_doc = db.experiments.find_one({"path_str": path})
             if not exp_doc:
-                error(f"Path {join_path(path)} not found")
+                error(f"Path {path} not found")
                 return
 
             notes = exp_doc.get("notes", {})
             edited_notes = edit(
                 notes,
-                title=f"Edit experiment notes: {join_path(path)}",
+                title=f"Edit experiment notes: {path}",
             )
             db.update_experiment_notes(path, edited_notes)
-            success(f"Updated notes for experiment {join_path(path)}")
+            success(f"Updated notes for experiment {path}")
     except ValueError as e:
         error(f"Invalid path: {e}")
     except Exception as e:

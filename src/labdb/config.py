@@ -46,10 +46,10 @@ CONFIG_SCHEMA = {
             "default": 1024,
         },
         "current_path": {
-            "type": "array",
-            "items": {"type": "string"},
+            "type": "string",
             "description": "Current working path",
-            "internal": True,  # Mark as internal so it's not shown in config setup
+            "internal": True,
+            "default": "/",
         },
     },
     "required": [
@@ -114,6 +114,12 @@ def load_config(should_validate: bool = True):
     try:
         with open(CONFIG_FILE, "r") as f:
             config = json.load(f)
+            
+            # Handle migration from array-based paths to string paths
+            if "current_path" in config and isinstance(config["current_path"], list):
+                from labdb.utils import join_path
+                config["current_path"] = join_path(config["current_path"])
+            
             if should_validate:
                 validate(config, CONFIG_SCHEMA)
             return config
@@ -190,14 +196,42 @@ def check_db(config: dict | None = None) -> None:
     db.command("ping")
 
 
-def update_current_path(path):
-    """Update the current path in the config file"""
+def update_current_path(path: str):
+    """
+    Update the current path in the config file
+    
+    Args:
+        path: The new current path as a string
+    """
+    # Ensure path is a string
+    if not isinstance(path, str):
+        from labdb.utils import join_path
+        path = join_path(path)
+        
     config = load_config() or {}
     config["current_path"] = path
     save_config(config)
 
 
-def get_current_path():
-    """Get the current path from the config file"""
+def get_current_path() -> str:
+    """
+    Get the current path from the config file
+    
+    Returns:
+        The current path as a string
+    """
     config = load_config() or {}
-    return config.get("current_path", [])
+    
+    # Handle migration from array paths
+    if "current_path" not in config:
+        return "/"
+    
+    if isinstance(config["current_path"], list):
+        # Convert from array to string
+        from labdb.utils import join_path
+        path = join_path(config["current_path"])
+        # Update the config with the string path
+        update_current_path(path)
+        return path
+    
+    return config.get("current_path", "/")

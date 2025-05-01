@@ -12,7 +12,7 @@ from pymongo import MongoClient
 from labdb.config import load_config
 from labdb.utils import long_id
 
-DEBUG = True
+DEBUG = False
 
 
 def serialize_numpy_array(
