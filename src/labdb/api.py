@@ -166,8 +166,9 @@ class ExperimentQuery:
         """
         Get experiments from a list of paths
         """
-        query = {"path": {"$in": paths}}
-        return self.get_experiments(query=query, sort=sort, projection=projection)
+        paths_normalized = [self._normalize_path(path) for path in paths]
+        query = {"path_str": {"$in": paths_normalized}}
+        return self.get_experiments(path="/", query=query, sort=sort, projection=projection, recursive=True)
 
     def get_experiment(self, path: str | list[str]):
         """
