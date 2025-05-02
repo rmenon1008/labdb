@@ -129,6 +129,48 @@ class ExperimentQuery:
             return join_path(path)
         return resolve_path(get_current_path(), path)
 
+    def _expand_paths(self, paths: list[str]) -> list[str]:
+        """Expand paths that contain range patterns
+
+        For example, if the path is "exp_$(1-3)/", the function will return
+        ["exp_1/", "exp_2/", "exp_3/"].
+
+        Args:
+            paths: List of paths to expand
+
+        Returns:
+            List of expanded paths
+        """
+        expanded_paths = []
+        for path in paths:
+            if "$(" in path and ")" in path:
+                # Extract the range pattern
+                start_idx = path.find("$(")
+                end_idx = path.find(")", start_idx)
+                if start_idx >= 0 and end_idx > start_idx:
+                    range_expr = path[start_idx+2:end_idx]
+                    if "-" in range_expr:
+                        try:
+                            # Parse range boundaries
+                            start_val, end_val = map(int, range_expr.split("-"))
+                            base_path = path[:start_idx]
+                            suffix = path[end_idx+1:]
+                            
+                            # Generate paths for each value in the range
+                            for i in range(start_val, end_val + 1):
+                                expanded_path = f"{base_path}{i}{suffix}"
+                                expanded_paths.append(expanded_path)
+                        except ValueError:
+                            # If parsing fails, treat as a regular path
+                            expanded_paths.append(path)
+                    else:
+                        expanded_paths.append(path)
+                else:
+                    expanded_paths.append(path)
+            else:
+                expanded_paths.append(path)
+        return expanded_paths
+
     def get_experiments(
         self,
         path: str | list[str] = None,
@@ -164,9 +206,19 @@ class ExperimentQuery:
 
     def get_experiments_in_list(self, paths: list[str], sort: list = None, projection: dict = None):
         """
-        Get experiments from a list of paths
+        Get experiments from a list of paths. It supports range patterns
+        in the paths, e.g. "/path/exp_$(1-3)/".
+
+        Args:
+            paths: List of paths to query
+            sort: MongoDB sort specification
+            projection: MongoDB projection to specify which fields to return
+
+        Returns:
+            List of experiment data
         """
-        paths_normalized = [self._normalize_path(path) for path in paths]
+        paths_expanded = self._expand_paths(paths)
+        paths_normalized = [self._normalize_path(path) for path in paths_expanded]
         query = {"path_str": {"$in": paths_normalized}}
         return self.get_experiments(path="/", query=query, sort=sort, projection=projection, recursive=True)
 
