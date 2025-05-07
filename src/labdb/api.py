@@ -141,10 +141,11 @@ class ExperimentQuery:
         Returns:
             List of expanded paths
         """
-        expanded_paths = []
+        result = []
         for path in paths:
+            # Check if the path contains any pattern
             if "$(" in path and ")" in path:
-                # Extract the range pattern
+                # Extract the first range pattern
                 start_idx = path.find("$(")
                 end_idx = path.find(")", start_idx)
                 if start_idx >= 0 and end_idx > start_idx:
@@ -159,17 +160,19 @@ class ExperimentQuery:
                             # Generate paths for each value in the range
                             for i in range(start_val, end_val + 1):
                                 expanded_path = f"{base_path}{i}{suffix}"
-                                expanded_paths.append(expanded_path)
+                                # Recursively expand any remaining patterns
+                                if "$(" in expanded_path and ")" in expanded_path:
+                                    result.extend(self._expand_paths([expanded_path]))
+                                else:
+                                    result.append(expanded_path)
+                            continue  # Skip adding the original path
                         except ValueError:
                             # If parsing fails, treat as a regular path
-                            expanded_paths.append(path)
-                    else:
-                        expanded_paths.append(path)
-                else:
-                    expanded_paths.append(path)
-            else:
-                expanded_paths.append(path)
-        return expanded_paths
+                            pass
+                        
+            # If no patterns or parsing failed, add the path as is
+            result.append(path)
+        return result
 
     def get_experiments(
         self,
