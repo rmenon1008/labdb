@@ -298,3 +298,118 @@ def test_experiment_id_generation(mock_db):
     mock_db.create_dir("/empty_id_test")
     next_id = mock_db.get_next_experiment_id("/empty_id_test")
     assert next_id == "0"  # Should start with 0 for empty directory
+
+
+def test_range_patterns(mock_db):
+    """Test range pattern expansion for both dash and comma-separated patterns"""
+    # Create test directory structure
+    mock_db.create_dir("/pattern_test")
+    mock_db.create_dir("/pattern_test/exp1")
+    mock_db.create_dir("/pattern_test/exp2")
+    mock_db.create_dir("/pattern_test/exp3")
+    mock_db.create_dir("/pattern_test/exp5")
+    mock_db.create_dir("/pattern_test/exp7")
+    
+    # Create experiments in each directory
+    mock_db.create_experiment("/pattern_test/exp1", name="data", data={"value": 1})
+    mock_db.create_experiment("/pattern_test/exp2", name="data", data={"value": 2})
+    mock_db.create_experiment("/pattern_test/exp3", name="data", data={"value": 3})
+    mock_db.create_experiment("/pattern_test/exp5", name="data", data={"value": 5})
+    mock_db.create_experiment("/pattern_test/exp7", name="data", data={"value": 7})
+    
+    # Test dash range pattern (existing functionality)
+    exps = mock_db.get_experiments("/pattern_test/exp$(1-3)/data")
+    assert len(exps) == 3
+    values = sorted([exp["data"]["value"] for exp in exps])
+    assert values == [1, 2, 3]
+    
+    # Test comma-separated pattern (new functionality)
+    exps = mock_db.get_experiments("/pattern_test/exp$(1,3,5)/data")
+    assert len(exps) == 3
+    values = sorted([exp["data"]["value"] for exp in exps])
+    assert values == [1, 3, 5]
+    
+    # Test comma-separated pattern with spaces
+    exps = mock_db.get_experiments("/pattern_test/exp$(1, 3, 5)/data")
+    assert len(exps) == 3
+    values = sorted([exp["data"]["value"] for exp in exps])
+    assert values == [1, 3, 5]
+    
+    # Test comma-separated pattern with different order
+    exps = mock_db.get_experiments("/pattern_test/exp$(5,1,3)/data")
+    assert len(exps) == 3
+    values = sorted([exp["data"]["value"] for exp in exps])
+    assert values == [1, 3, 5]
+    
+    # Test comma-separated pattern with duplicates (should not duplicate results)
+    exps = mock_db.get_experiments("/pattern_test/exp$(1,1,3,3)/data")
+    assert len(exps) == 4  # Should include duplicates in expansion
+    values = sorted([exp["data"]["value"] for exp in exps])
+    assert values == [1, 1, 3, 3]
+    
+    # Test comma-separated pattern with non-existent paths
+    exps = mock_db.get_experiments("/pattern_test/exp$(1,4,5)/data")
+    assert len(exps) == 2  # Only exp1 and exp5 exist, exp4 doesn't
+    values = sorted([exp["data"]["value"] for exp in exps])
+    assert values == [1, 5]
+    
+    # Test mixed patterns (comma-separated with single value)
+    exps = mock_db.get_experiments("/pattern_test/exp$(7)/data")
+    assert len(exps) == 1
+    assert exps[0]["data"]["value"] == 7
+    
+    # Test list of paths with comma-separated patterns
+    paths = ["/pattern_test/exp$(1,3)/data", "/pattern_test/exp$(5,7)/data"]
+    exps = mock_db.get_experiments(paths)
+    assert len(exps) == 4
+    values = sorted([exp["data"]["value"] for exp in exps])
+    assert values == [1, 3, 5, 7]
+    
+    # Test nested patterns (comma-separated in directory and experiment names)
+    mock_db.create_dir("/pattern_test/dir1")
+    mock_db.create_dir("/pattern_test/dir3")
+    mock_db.create_experiment("/pattern_test/dir1", name="exp1", data={"nested": 11})
+    mock_db.create_experiment("/pattern_test/dir3", name="exp3", data={"nested": 33})
+    
+    exps = mock_db.get_experiments("/pattern_test/dir$(1,3)/exp$(1,3)")
+    assert len(exps) == 2
+    values = sorted([exp["data"]["nested"] for exp in exps])
+    assert values == [11, 33]
+
+
+def test_expand_paths_method(mock_db):
+    """Test the _expand_paths method directly"""
+    # Test dash range expansion
+    expanded = mock_db._expand_paths(["/test/exp$(1-3)"])
+    assert expanded == ["/test/exp1", "/test/exp2", "/test/exp3"]
+    
+    # Test comma-separated expansion
+    expanded = mock_db._expand_paths(["/test/exp$(1,3,5)"])
+    assert expanded == ["/test/exp1", "/test/exp3", "/test/exp5"]
+    
+    # Test comma-separated with spaces
+    expanded = mock_db._expand_paths(["/test/exp$(1, 3, 5)"])
+    assert expanded == ["/test/exp1", "/test/exp3", "/test/exp5"]
+    
+    # Test multiple patterns in one path
+    expanded = mock_db._expand_paths(["/test/exp$(1,2)/sub$(3,4)"])
+    expected = ["/test/exp1/sub3", "/test/exp1/sub4", "/test/exp2/sub3", "/test/exp2/sub4"]
+    assert sorted(expanded) == sorted(expected)
+    
+    # Test mixed pattern types
+    paths = ["/test/exp$(1-2)", "/test/exp$(5,7)"]
+    expanded = mock_db._expand_paths(paths)
+    expected = ["/test/exp1", "/test/exp2", "/test/exp5", "/test/exp7"]
+    assert sorted(expanded) == sorted(expected)
+    
+    # Test no patterns (should return as-is)
+    expanded = mock_db._expand_paths(["/test/exp1", "/test/exp2"])
+    assert expanded == ["/test/exp1", "/test/exp2"]
+    
+    # Test invalid patterns (should return as-is)
+    expanded = mock_db._expand_paths(["/test/exp$(invalid)"])
+    assert expanded == ["/test/exp$(invalid)"]
+    
+    # Test empty list
+    expanded = mock_db._expand_paths([])
+    assert expanded == []

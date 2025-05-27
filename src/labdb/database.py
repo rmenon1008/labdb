@@ -531,6 +531,9 @@ class Database:
 
         For example, if the path is "exp_$(1-3)/", the function will return
         ["exp_1/", "exp_2/", "exp_3/"].
+        
+        If the path is "exp_$(1,3,5)/", the function will return
+        ["exp_1/", "exp_3/", "exp_5/"].
 
         Args:
             paths: List of paths to expand
@@ -547,13 +550,32 @@ class Database:
                 end_idx = path.find(")", start_idx)
                 if start_idx >= 0 and end_idx > start_idx:
                     range_expr = path[start_idx + 2 : end_idx]
-                    if "-" in range_expr:
+                    base_path = path[:start_idx]
+                    suffix = path[end_idx + 1 :]
+                    
+                    # Check for comma-separated values first
+                    if "," in range_expr:
+                        try:
+                            # Parse comma-separated values
+                            values = [int(val.strip()) for val in range_expr.split(",")]
+                            
+                            # Generate paths for each value
+                            for val in values:
+                                expanded_path = f"{base_path}{val}{suffix}"
+                                # Recursively expand any remaining patterns
+                                if "$(" in expanded_path and ")" in expanded_path:
+                                    result.extend(self._expand_paths([expanded_path]))
+                                else:
+                                    result.append(expanded_path)
+                            continue  # Skip adding the original path
+                        except ValueError:
+                            # If parsing fails, treat as a regular path
+                            pass
+                    elif "-" in range_expr:
                         try:
                             # Parse range boundaries
                             start_val, end_val = map(int, range_expr.split("-"))
-                            base_path = path[:start_idx]
-                            suffix = path[end_idx + 1 :]
-
+                            
                             # Generate paths for each value in the range
                             for i in range(start_val, end_val + 1):
                                 expanded_path = f"{base_path}{i}{suffix}"
@@ -585,7 +607,8 @@ class Database:
 
         Args:
             path: The path(s) to get experiments from (string or list of strings)
-                  Supports range patterns like "exp_$(1-3)/" which expands to multiple paths
+                  Supports range patterns like "exp_$(1-3)/" (range) or "exp_$(1,3,5)/" (comma-separated) 
+                  which expand to multiple paths
             recursive: If True, include experiments in subdirectories
             query: Additional query conditions
             projection: Fields to include in the results

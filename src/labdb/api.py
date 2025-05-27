@@ -144,7 +144,8 @@ class ExperimentQuery:
 
         Args:
             path: Path(s) to query (string or list of path strings)
-                  Supports range patterns like "exp_$(1-3)/" which expands to multiple paths
+                  Supports range patterns like "exp_$(1-3)/" (range) or "exp_$(1,3,5)/" (comma-separated) 
+                  which expand to multiple paths
             recursive: If True, includes experiments in subdirectories
             query: Additional MongoDB query to filter results
             projection: MongoDB projection to specify which fields to return
