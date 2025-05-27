@@ -218,8 +218,8 @@ class Database:
                 raise Exception(f"Experiment {name} already exists at {path}")
             experiment_id = name
         else:
-            # Auto-increment number as ID
-            experiment_id = str(self.count_experiments(path))
+            # Get next available sequential number as ID
+            experiment_id = self.get_next_experiment_id(path)
             experiment_path = f"{path}/{experiment_id}" if path != "/" else f"/{experiment_id}"
         
         # Store path components for backward compatibility
@@ -296,6 +296,51 @@ class Database:
         
         query = {"path_str": {"$regex": f"^{escaped_parent_path}[^/]+$"}}
         return self.experiments.count_documents(query)
+
+    def get_next_experiment_id(self, path: str) -> str:
+        """
+        Get the next available sequential experiment ID for a directory.
+        
+        Args:
+            path: The directory path (string)
+            
+        Returns:
+            The next available experiment ID as a string
+        """
+        # Make sure path ends with a slash for prefix matching
+        parent_path = path if path.endswith("/") else path + "/"
+        
+        # Escape special regex characters for safety
+        escaped_parent_path = escape_regex_path(parent_path)
+        
+        # Use MongoDB aggregation to find the maximum numeric experiment ID
+        pipeline = [
+            # Match experiments in this directory
+            {"$match": {"path_str": {"$regex": f"^{escaped_parent_path}[^/]+$"}}},
+            # Add a field with just the experiment name
+            {"$addFields": {
+                "exp_name": {"$arrayElemAt": [{"$split": ["$path_str", "/"]}, -1]}
+            }},
+            # Filter to only numeric experiment names and convert to int
+            {"$match": {"exp_name": {"$regex": "^[0-9]+$"}}},
+            {"$addFields": {
+                "exp_id_num": {"$toInt": "$exp_name"}
+            }},
+            # Group to find the maximum
+            {"$group": {
+                "_id": None,
+                "max_id": {"$max": "$exp_id_num"}
+            }}
+        ]
+        
+        result = list(self.experiments.aggregate(pipeline))
+        
+        # If no numeric experiments exist, start with 0
+        if not result or result[0]["max_id"] is None:
+            return "0"
+        
+        # Return max + 1
+        return str(result[0]["max_id"] + 1)
 
     def _build_path_prefix_query(self, path: str) -> dict:
         if path == "/":

@@ -244,4 +244,57 @@ def test_get_experiments(mock_db):
     
     # Test with limit
     exps = mock_db.get_experiments("/query_test_dir", recursive=True, limit=2)
-    assert len(exps) == 2 
+    assert len(exps) == 2
+
+
+def test_experiment_id_generation(mock_db):
+    """Test experiment ID generation with deletions"""
+    # Create a directory for testing
+    mock_db.create_dir("/id_test_dir")
+    
+    # Test case 1: No experiments exist, should start with 0
+    exp_path, exp_id = mock_db.create_experiment("/id_test_dir")
+    assert exp_id == "0"
+    assert exp_path == "/id_test_dir/0"
+    
+    # Test case 2: Create sequential experiments
+    exp_path, exp_id = mock_db.create_experiment("/id_test_dir")
+    assert exp_id == "1"
+    assert exp_path == "/id_test_dir/1"
+    
+    exp_path, exp_id = mock_db.create_experiment("/id_test_dir")
+    assert exp_id == "2"
+    assert exp_path == "/id_test_dir/2"
+    
+    # Test case 3: Delete experiment in the middle
+    mock_db.delete("/id_test_dir/1")
+    
+    # Next experiment should use max + 1 (not fill the gap)
+    exp_path, exp_id = mock_db.create_experiment("/id_test_dir")
+    assert exp_id == "3"  # Should be 3, not 1 (gap filling)
+    assert exp_path == "/id_test_dir/3"
+    
+    # Test case 4: Mix of numeric and non-numeric experiments
+    mock_db.create_experiment("/id_test_dir", name="custom_exp")
+    exp_path, exp_id = mock_db.create_experiment("/id_test_dir")
+    assert exp_id == "4"  # Should ignore non-numeric experiments
+    
+    # Test case 5: Delete all numeric experiments
+    mock_db.delete("/id_test_dir/0")
+    mock_db.delete("/id_test_dir/2")
+    mock_db.delete("/id_test_dir/3")
+    mock_db.delete("/id_test_dir/4")
+    
+    # Should start from 0 again when no numeric experiments exist
+    exp_path, exp_id = mock_db.create_experiment("/id_test_dir")
+    assert exp_id == "0"
+    assert exp_path == "/id_test_dir/0"
+    
+    # Test case 6: Direct call to get_next_experiment_id
+    next_id = mock_db.get_next_experiment_id("/id_test_dir")
+    assert next_id == "1"  # Should be 1 since we have 0
+    
+    # Test case 7: Empty directory
+    mock_db.create_dir("/empty_id_test")
+    next_id = mock_db.get_next_experiment_id("/empty_id_test")
+    assert next_id == "0"  # Should start with 0 for empty directory 
