@@ -1,2 +1,0 @@
-1. **Restructure sessions/experiments.** It's a little confusing what a "session" is exactly. And session doesn't connote the "type" of data being different. Impedance traces should exist in the same database as other experiments. Maybe replace session with "group" or "category"? Then, within that have "session" as an optional attribute
-1. 
