@@ -391,6 +391,27 @@ def cli_cd(args):
         error(f"Invalid path: {e}")
 
 
+def _find_common_notes(notes_list):
+    """Find notes that are common across all experiments with the same values."""
+    if not notes_list:
+        return {}
+    
+    # Start with the first experiment's notes
+    common_notes = notes_list[0].copy()
+    
+    # For each subsequent experiment, keep only keys that exist with the same value
+    for notes in notes_list[1:]:
+        keys_to_remove = []
+        for key, value in common_notes.items():
+            if key not in notes or notes[key] != value:
+                keys_to_remove.append(key)
+        
+        for key in keys_to_remove:
+            del common_notes[key]
+    
+    return common_notes
+
+
 @cli_operation
 def cli_edit(args):
     config = load_config()
@@ -402,37 +423,103 @@ def cli_edit(args):
         return
 
     try:
-        path = resolve_path(current_path, args.path)
-
-        # Check if it's a directory or experiment
-        if db.dir_exists(path):
-            # Get the current notes for this directory
-            dir_doc = db.directories.find_one({"path_str": path})
-            if not dir_doc:
-                error(f"Directory {path} not found")
+        # Handle path resolution with potential range patterns
+        if "$(" in args.path and ")" in args.path:
+            # Path contains range patterns, handle bulk editing
+            if args.path.startswith("/"):
+                path = args.path  # Absolute path with range pattern
+            else:
+                # Relative path with range pattern, resolve manually
+                if current_path == "/":
+                    path = f"/{args.path}"
+                else:
+                    path = f"{current_path}/{args.path}"
+            
+            # Expand the path patterns
+            expanded_paths = db._expand_paths([path])
+            
+            # Get all experiments that exist from the expanded paths
+            existing_experiments = []
+            experiment_paths = []
+            
+            for expanded_path in expanded_paths:
+                try:
+                    exp_doc = db.experiments.find_one({"path_str": expanded_path})
+                    if exp_doc:
+                        existing_experiments.append(exp_doc)
+                        experiment_paths.append(expanded_path)
+                except Exception:
+                    # Skip paths that can't be accessed
+                    continue
+            
+            if not existing_experiments:
+                error(f"No experiments found matching pattern {args.path}")
                 return
-
-            notes = dir_doc.get("notes", {})
+            
+            # Extract notes from all experiments
+            all_notes = [exp.get("notes", {}) for exp in existing_experiments]
+            
+            # Find common notes across all experiments
+            common_notes = _find_common_notes(all_notes)
+                        
+            # Edit the common notes
             edited_notes = edit(
-                notes,
-                title=f"Edit directory notes: {path}",
+                common_notes,
+                title=f"Edit notes for {args.path} - {len(existing_experiments)} experiments",
             )
-            db.update_dir_notes(path, edited_notes)
-            success(f"Updated notes for directory {path}")
+            
+            # Apply the edited notes to all experiments
+            updated_count = 0
+            for exp_path in experiment_paths:
+                try:
+                    # Get current notes for this experiment
+                    current_exp = db.experiments.find_one({"path_str": exp_path})
+                    current_notes = current_exp.get("notes", {})
+                    
+                    # Merge edited notes with existing notes (edited notes take precedence)
+                    updated_notes = current_notes.copy()
+                    updated_notes.update(edited_notes)
+                    
+                    # Update the experiment
+                    db.update_experiment_notes(exp_path, updated_notes)
+                    updated_count += 1
+                except Exception as e:
+                    error(f"Failed to update {exp_path}: {e}")
+            
+            success(f"Updated notes for {updated_count} experiments matching pattern {args.path}")
         else:
-            # It's an experiment
-            exp_doc = db.experiments.find_one({"path_str": path})
-            if not exp_doc:
-                error(f"Path {path} not found")
-                return
+            # Regular single path editing (existing logic)
+            path = resolve_path(current_path, args.path)
 
-            notes = exp_doc.get("notes", {})
-            edited_notes = edit(
-                notes,
-                title=f"Edit experiment notes: {path}",
-            )
-            db.update_experiment_notes(path, edited_notes)
-            success(f"Updated notes for experiment {path}")
+            # Check if it's a directory or experiment
+            if db.dir_exists(path):
+                # Get the current notes for this directory
+                dir_doc = db.directories.find_one({"path_str": path})
+                if not dir_doc:
+                    error(f"Directory {path} not found")
+                    return
+
+                notes = dir_doc.get("notes", {})
+                edited_notes = edit(
+                    notes,
+                    title=f"Edit directory notes: {path}",
+                )
+                db.update_dir_notes(path, edited_notes)
+                success(f"Updated notes for directory {path}")
+            else:
+                # It's an experiment
+                exp_doc = db.experiments.find_one({"path_str": path})
+                if not exp_doc:
+                    error(f"Path {path} not found")
+                    return
+
+                notes = exp_doc.get("notes", {})
+                edited_notes = edit(
+                    notes,
+                    title=f"Edit experiment notes: {path}",
+                )
+                db.update_experiment_notes(path, edited_notes)
+                success(f"Updated notes for experiment {path}")
     except ValueError as e:
         error(f"Invalid path: {e}")
     except Exception as e:
