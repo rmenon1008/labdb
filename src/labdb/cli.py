@@ -1,7 +1,5 @@
 import argparse
-import os
 import sys
-import traceback
 
 from labdb.cli_commands import (
     cli_cd,
@@ -18,24 +16,7 @@ from labdb.cli_completions import (
     install_completions,
     setup_completions,
 )
-from labdb.cli_formatting import error, info, success, warning
-from labdb.cli_json_editor import edit
-from labdb.config import (
-    CONFIG_FILE,
-    CONFIG_SCHEMA,
-    get_current_path,
-    load_config,
-    save_config,
-    update_current_path,
-)
-from labdb.database import Database
-from labdb.utils import (
-    date_to_relative_time,
-    dict_str,
-    join_path,
-    resolve_path,
-    split_path,
-)
+from labdb.cli_interactive import interactive_mode
 
 
 def add_command(subparsers, name, func, help_text, **kwargs):
@@ -59,9 +40,10 @@ def main():
     parser.add_argument("--setup-completions", action="store_true", 
                       help="Install tab completion for the current shell")
     
+    # Add subcommands
     subparsers = parser.add_subparsers(dest="command", help="Commands")
-
-    # Filesystem-like commands
+    
+    # Add all the commands (reusing the same definitions as in create_parser)
     add_command(
         subparsers,
         "pwd",
@@ -135,6 +117,11 @@ def main():
     # Enable tab completion
     setup_completions(parser)
     
+    # If no arguments provided, check if it should enter interactive mode
+    if len(sys.argv) == 1:
+        interactive_mode()
+        return
+        
     args = parser.parse_args()
     
     # Handle --setup-completions option

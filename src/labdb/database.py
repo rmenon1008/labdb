@@ -50,7 +50,11 @@ class Database:
         version = self.experiments.find_one({"_id": "version"})["version"]
 
         if version.split(".")[0] != __version__.split(".")[0]:
-            raise Exception(f"Version mismatch: database@{version} != labdb@{__version__} (up/downgrade labdb to continue, or select/create a different database)")
+            raise Exception(f"Version mismatch: database@{version} != labdb@{__version__} (up/downgrade labdb to continue, or select/create a different database)")\
+            
+    def __del__(self):
+        if hasattr(self, "client") and self.client is not None:
+            self.client.close()
 
     def create_dir(self, path: str, notes: dict = {}):
         """
