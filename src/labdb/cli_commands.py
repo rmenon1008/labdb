@@ -209,39 +209,103 @@ def cli_rm(args):
     current_path = get_current_path()
 
     try:
-        path = resolve_path(current_path, args.path)
+        # Handle path resolution with potential range patterns
+        if "$(" in args.path and ")" in args.path:
+            # Path contains range patterns, handle specially
+            if args.path.startswith("/"):
+                path = args.path  # Absolute path with range pattern
+            else:
+                # Relative path with range pattern, resolve manually
+                if current_path == "/":
+                    path = f"/{args.path}"
+                else:
+                    path = f"{current_path}/{args.path}"
+            
+            # Expand the path patterns
+            expanded_paths = db._expand_paths([path])
+            
+            # Calculate total affected items across all expanded paths
+            total_affected_counts = {"experiments": 0, "directories": 0}
+            for expanded_path in expanded_paths:
+                try:
+                    affected_counts = db.delete(expanded_path, dry_run=True)
+                    total_affected_counts["experiments"] += affected_counts["experiments"]
+                    total_affected_counts["directories"] += affected_counts["directories"]
+                except Exception:
+                    # Skip paths that don't exist or can't be accessed
+                    continue
+            
+            total_affected = total_affected_counts["experiments"] + total_affected_counts["directories"]
+            
+            if total_affected == 0:
+                error("No items affected")
+                return
 
-        # Run in dry-run mode first to get count of affected items
-        affected_counts = db.delete(path, dry_run=True)
-        total_affected = affected_counts["experiments"] + affected_counts["directories"]
+            # If in dry-run mode, just show the count and exit
+            if hasattr(args, "dry_run") and args.dry_run:
+                exp_text = f"{total_affected_counts['experiments']} experiment{'s' if total_affected_counts['experiments'] != 1 else ''}"
+                dir_text = f"{total_affected_counts['directories']} director{'ies' if total_affected_counts['directories'] != 1 else 'y'}"
+                info(f"Would delete {exp_text} and {dir_text} from pattern {args.path}")
+                return
 
-        if total_affected == 0:
-            error("No items affected")
-            return
+            # Confirm with user before proceeding
+            exp_text = f"{total_affected_counts['experiments']} experiment{'s' if total_affected_counts['experiments'] != 1 else ''}"
+            dir_text = f"{total_affected_counts['directories']} director{'ies' if total_affected_counts['directories'] != 1 else 'y'}"
+            confirm_message = (
+                f'Deleting pattern "{args.path}" will result in {exp_text} and {dir_text} being deleted'
+            )
 
-        # If in dry-run mode, just show the count and exit
-        if hasattr(args, "dry_run") and args.dry_run:
+            error(confirm_message)
+            confirmation = input("Proceed? (y/n): ").strip().lower()
+            if confirmation != "y":
+                info("Operation canceled")
+                return
+
+            # Proceed with actual deletion for each expanded path
+            deleted_count = 0
+            for expanded_path in expanded_paths:
+                try:
+                    db.delete(expanded_path)
+                    deleted_count += 1
+                except Exception as e:
+                    error(f"Failed to delete {expanded_path}: {e}")
+            
+            info(f"Removed {deleted_count} path(s) from pattern {args.path}")
+        else:
+            # Regular single path deletion (existing logic)
+            path = resolve_path(current_path, args.path)
+
+            # Run in dry-run mode first to get count of affected items
+            affected_counts = db.delete(path, dry_run=True)
+            total_affected = affected_counts["experiments"] + affected_counts["directories"]
+
+            if total_affected == 0:
+                error("No items affected")
+                return
+
+            # If in dry-run mode, just show the count and exit
+            if hasattr(args, "dry_run") and args.dry_run:
+                exp_text = f"{affected_counts['experiments']} experiment{'s' if affected_counts['experiments'] != 1 else ''}"
+                dir_text = f"{affected_counts['directories']} director{'ies' if affected_counts['directories'] != 1 else 'y'}"
+                info(f"Would delete {exp_text} and {dir_text} from {path}")
+                return
+
+            # Confirm with user before proceeding
             exp_text = f"{affected_counts['experiments']} experiment{'s' if affected_counts['experiments'] != 1 else ''}"
             dir_text = f"{affected_counts['directories']} director{'ies' if affected_counts['directories'] != 1 else 'y'}"
-            info(f"Would delete {exp_text} and {dir_text} from {path}")
-            return
+            confirm_message = (
+                f'Deleting "{path}" will result in {exp_text} and {dir_text} being deleted'
+            )
 
-        # Confirm with user before proceeding
-        exp_text = f"{affected_counts['experiments']} experiment{'s' if affected_counts['experiments'] != 1 else ''}"
-        dir_text = f"{affected_counts['directories']} director{'ies' if affected_counts['directories'] != 1 else 'y'}"
-        confirm_message = (
-            f'Deleting "{path}" will result in {exp_text} and {dir_text} being deleted'
-        )
+            error(confirm_message)
+            confirmation = input("Proceed? (y/n): ").strip().lower()
+            if confirmation != "y":
+                info("Operation canceled")
+                return
 
-        error(confirm_message)
-        confirmation = input("Proceed? (y/n): ").strip().lower()
-        if confirmation != "y":
-            info("Operation canceled")
-            return
-
-        # Proceed with actual deletion
-        db.delete(path)
-        info(f"Removed {path}")
+            # Proceed with actual deletion
+            db.delete(path)
+            info(f"Removed {path}")
     except ValueError as e:
         error(f"Invalid path: {e}")
     except Exception as e:

@@ -115,65 +115,20 @@ class ExperimentQuery:
     def __init__(self) -> None:
         self.db = Database()
 
-    def _normalize_path(self, path: str | list[str] | None = None) -> str:
+    def _normalize_path(self, path: str | None = None) -> str:
         """Convert a path parameter to a string path format
 
         Args:
-            path: Path as string or list, or None to use current path
+            path: Path as string, or None to use current path
 
         Returns:
             Path as a string
         """
         if path is None:
             return get_current_path()
-        elif isinstance(path, list):
-            return join_path(path)
         return resolve_path(get_current_path(), path)
 
-    def _expand_paths(self, paths: list[str]) -> list[str]:
-        """Expand paths that contain range patterns
 
-        For example, if the path is "exp_$(1-3)/", the function will return
-        ["exp_1/", "exp_2/", "exp_3/"].
-
-        Args:
-            paths: List of paths to expand
-
-        Returns:
-            List of expanded paths
-        """
-        result = []
-        for path in paths:
-            # Check if the path contains any pattern
-            if "$(" in path and ")" in path:
-                # Extract the first range pattern
-                start_idx = path.find("$(")
-                end_idx = path.find(")", start_idx)
-                if start_idx >= 0 and end_idx > start_idx:
-                    range_expr = path[start_idx + 2 : end_idx]
-                    if "-" in range_expr:
-                        try:
-                            # Parse range boundaries
-                            start_val, end_val = map(int, range_expr.split("-"))
-                            base_path = path[:start_idx]
-                            suffix = path[end_idx + 1 :]
-
-                            # Generate paths for each value in the range
-                            for i in range(start_val, end_val + 1):
-                                expanded_path = f"{base_path}{i}{suffix}"
-                                # Recursively expand any remaining patterns
-                                if "$(" in expanded_path and ")" in expanded_path:
-                                    result.extend(self._expand_paths([expanded_path]))
-                                else:
-                                    result.append(expanded_path)
-                            continue  # Skip adding the original path
-                        except ValueError:
-                            # If parsing fails, treat as a regular path
-                            pass
-
-            # If no patterns or parsing failed, add the path as is
-            result.append(path)
-        return result
 
     def get_experiments(
         self,
@@ -185,10 +140,11 @@ class ExperimentQuery:
         limit: int = None,
     ):
         """
-        Query experiments at the specified path
+        Query experiments at the specified path(s)
 
         Args:
-            path: Path to query (string or list path)
+            path: Path(s) to query (string or list of path strings)
+                  Supports range patterns like "exp_$(1-3)/" which expands to multiple paths
             recursive: If True, includes experiments in subdirectories
             query: Additional MongoDB query to filter results
             projection: MongoDB projection to specify which fields to return
@@ -198,9 +154,10 @@ class ExperimentQuery:
         Returns:
             List of experiment data
         """
-        path = self._normalize_path(path)
+        paths = [path] if not isinstance(path, list) else path
+        normalized_paths = [self._normalize_path(p) for p in paths]
         return self.db.get_experiments(
-            path,
+            normalized_paths[0] if len(normalized_paths) == 1 else normalized_paths,
             recursive=recursive,
             query=query,
             projection=projection,
@@ -208,34 +165,14 @@ class ExperimentQuery:
             limit=limit,
         )
 
-    def get_experiments_in_list(
-        self, paths: list[str], sort: list = None, projection: dict = None
-    ):
-        """
-        Get experiments from a list of paths. It supports range patterns
-        in the paths, e.g. "/path/exp_$(1-3)/".
 
-        Args:
-            paths: List of paths to query
-            sort: MongoDB sort specification
-            projection: MongoDB projection to specify which fields to return
 
-        Returns:
-            List of experiment data
-        """
-        paths_expanded = self._expand_paths(paths)
-        paths_normalized = [self._normalize_path(path) for path in paths_expanded]
-        query = {"path_str": {"$in": paths_normalized}}
-        return self.get_experiments(
-            path="/", query=query, sort=sort, projection=projection, recursive=True
-        )
-
-    def get_experiment(self, path: str | list[str]):
+    def get_experiment(self, path: str):
         """
         Get data for a specific experiment path
 
         Args:
-            path: Full path to the experiment (string or list)
+            path: Full path to the experiment (string)
 
         Returns:
             Experiment data object
@@ -248,24 +185,24 @@ class ExperimentQuery:
 
         return experiments[0]
 
-    def experiment_log_data(self, path: str | list[str], key: str, value: any) -> None:
+    def experiment_log_data(self, path: str, key: str, value: any) -> None:
         """
         Log data to an experiment
 
         Args:
-            path: Path to the experiment (string or list)
+            path: Path to the experiment (string)
             key: The data key
             value: The data value
         """
         path = self._normalize_path(path)
         self.db.add_experiment_data(path, key, value)
 
-    def experiment_log_note(self, path: str | list[str], key: str, value: any) -> None:
+    def experiment_log_note(self, path: str, key: str, value: any) -> None:
         """
         Log a note to an experiment
 
         Args:
-            path: Path to the experiment (string or list)
+            path: Path to the experiment (string)
             key: The note key
             value: The note value
         """

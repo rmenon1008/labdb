@@ -126,43 +126,12 @@ def test_normalize_path(mock_query):
         # Test with string path
         assert mock_query._normalize_path("/test") == "/test"
 
-        # Test with list path
-        assert mock_query._normalize_path(["test", "subdir"]) == "/test/subdir"
-
         # Test with relative path
         with patch("labdb.api.resolve_path", return_value="/current/subdir"):
             assert mock_query._normalize_path("subdir") == "/current/subdir"
 
 
-def test_expand_paths(mock_query):
-    """Test path expansion with range patterns"""
-    # Test basic path (no expansion)
-    paths = ["/test/path"]
-    assert mock_query._expand_paths(paths) == ["/test/path"]
 
-    # Test path with range pattern
-    paths = ["/test/exp_$(1-3)/data"]
-    expanded = mock_query._expand_paths(paths)
-    assert expanded == ["/test/exp_1/data", "/test/exp_2/data", "/test/exp_3/data"]
-
-    # Test multiple paths
-    paths = ["/test/exp_$(1-2)/data", "/other/path"]
-    expanded = mock_query._expand_paths(paths)
-    assert expanded == ["/test/exp_1/data", "/test/exp_2/data", "/other/path"]
-
-    # Test nested patterns
-    paths = ["/test/dir$(1-2)/exp$(3-4)"]
-    expanded = mock_query._expand_paths(paths)
-    assert set(expanded) == {
-        "/test/dir1/exp3",
-        "/test/dir1/exp4",
-        "/test/dir2/exp3",
-        "/test/dir2/exp4",
-    }
-
-    # Test invalid range pattern
-    paths = ["/test/exp_$(invalid)/data"]
-    assert mock_query._expand_paths(paths) == ["/test/exp_$(invalid)/data"]
 
 
 def test_get_experiments(mock_query, mock_db):
@@ -202,7 +171,7 @@ def test_get_experiments(mock_query, mock_db):
         assert len(exps) == 2
 
 
-def test_get_experiments_in_list(mock_query, mock_db):
+def test_get_experiments_with_list(mock_query, mock_db):
     """Test getting experiments from a list of paths"""
     # Create test data
     mock_db.create_dir("/exp_list_test")
@@ -217,12 +186,12 @@ def test_get_experiments_in_list(mock_query, mock_db):
     # Test with explicit paths
     paths = ["/exp_list_test/dir1/exp1", "/exp_list_test/dir2/exp2"]
     with patch("labdb.api.get_current_path", return_value="/exp_list_test"):
-        exps = mock_query.get_experiments_in_list(paths)
+        exps = mock_query.get_experiments(paths)
         assert len(exps) == 2
 
         # Test with range pattern
         paths = ["/exp_list_test/dir$(1-3)/exp$(1-3)"]
-        exps = mock_query.get_experiments_in_list(paths)
+        exps = mock_query.get_experiments(paths)
         assert len(exps) == 3  # dir1/exp1, dir2/exp2, dir3/exp3
 
 

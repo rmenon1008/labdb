@@ -51,7 +51,7 @@ def date_to_relative_time(date):
 
 
 ALLOWED_PATH_CHARS = (
-    string.ascii_lowercase + string.ascii_uppercase + string.digits + ".-_/*"
+    string.ascii_lowercase + string.ascii_uppercase + string.digits + ".-_/*$()"
 )
 
 

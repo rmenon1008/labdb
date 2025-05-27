@@ -526,9 +526,54 @@ class Database:
         self._update_paths(self.experiments, path_query, src_path, dest_path)
         return None
 
+    def _expand_paths(self, paths: list[str]) -> list[str]:
+        """Expand paths that contain range patterns
+
+        For example, if the path is "exp_$(1-3)/", the function will return
+        ["exp_1/", "exp_2/", "exp_3/"].
+
+        Args:
+            paths: List of paths to expand
+
+        Returns:
+            List of expanded paths
+        """
+        result = []
+        for path in paths:
+            # Check if the path contains any pattern
+            if "$(" in path and ")" in path:
+                # Extract the first range pattern
+                start_idx = path.find("$(")
+                end_idx = path.find(")", start_idx)
+                if start_idx >= 0 and end_idx > start_idx:
+                    range_expr = path[start_idx + 2 : end_idx]
+                    if "-" in range_expr:
+                        try:
+                            # Parse range boundaries
+                            start_val, end_val = map(int, range_expr.split("-"))
+                            base_path = path[:start_idx]
+                            suffix = path[end_idx + 1 :]
+
+                            # Generate paths for each value in the range
+                            for i in range(start_val, end_val + 1):
+                                expanded_path = f"{base_path}{i}{suffix}"
+                                # Recursively expand any remaining patterns
+                                if "$(" in expanded_path and ")" in expanded_path:
+                                    result.extend(self._expand_paths([expanded_path]))
+                                else:
+                                    result.append(expanded_path)
+                            continue  # Skip adding the original path
+                        except ValueError:
+                            # If parsing fails, treat as a regular path
+                            pass
+
+            # If no patterns or parsing failed, add the path as is
+            result.append(path)
+        return result
+
     def get_experiments(
         self,
-        path: str,
+        path: str | list[str],
         recursive: bool = False,
         query: dict = None,
         projection: dict = None,
@@ -536,10 +581,11 @@ class Database:
         limit: int = None,
     ):
         """
-        Get experiments at a path.
+        Get experiments at a path or list of paths.
 
         Args:
-            path: The path to get experiments from (string)
+            path: The path(s) to get experiments from (string or list of strings)
+                  Supports range patterns like "exp_$(1-3)/" which expands to multiple paths
             recursive: If True, include experiments in subdirectories
             query: Additional query conditions
             projection: Fields to include in the results
@@ -550,6 +596,45 @@ class Database:
             List of experiments
         """
         final_projection = projection if projection else {}
+
+        # Handle list of paths with expansion support
+        if isinstance(path, list):
+            # Expand paths with range patterns
+            expanded_paths = self._expand_paths(path)
+            
+            # Build query to match any of the expanded paths
+            path_query = {"path_str": {"$in": expanded_paths}}
+            final_query = merge_mongo_queries(path_query, query)
+            
+            count = self.experiments.count_documents(final_query)
+            cursor = self.experiments.find(final_query, final_projection)
+
+            if sort:
+                cursor = cursor.sort(sort)
+            if limit:
+                cursor = cursor.limit(limit)
+
+            # Return experiments with only the data field deserialized
+            result = []
+            total = min(count, limit) if limit else count
+            for i, exp in enumerate(cursor):
+                if total > 1:
+                    print(f"\rFetching experiments... {i + 1}/{total}", end="", flush=True)
+                # Only deserialize the data field
+                if "data" in exp:
+                    exp["data"] = deserialize(exp["data"], self.db)
+                result.append(exp)
+            if total > 1:
+                print()  # Add a newline after the status line
+            return result
+
+        # Handle single path (string)
+        # Check if the path contains expansion patterns
+        if "$(" in path and ")" in path:
+            expanded_paths = self._expand_paths([path])
+            return self.get_experiments(
+                expanded_paths, recursive, query, projection, sort, limit
+            )
 
         # Special case: single experiment by exact path
         exp = self.experiments.find_one({"path_str": path}, final_projection)
