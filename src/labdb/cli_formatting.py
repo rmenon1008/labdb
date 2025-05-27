@@ -1,5 +1,4 @@
 import os
-import sys
 
 no_color = os.environ.get("NO_COLOR") or os.environ.get("NO_COLOR_LABDB")
 

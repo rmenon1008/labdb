@@ -24,7 +24,7 @@ def add_command(subparsers, name, func, help_text, **kwargs):
     parser = subparsers.add_parser(name, help=help_text)
     for arg_name, arg_props in kwargs.items():
         # Add path completer to path arguments
-        if arg_name in ['path', 'src_path', 'dest_path']:
+        if arg_name in ["path", "src_path", "dest_path"]:
             parser.add_argument(arg_name, **arg_props).completer = get_path_completions
         else:
             parser.add_argument(arg_name, **arg_props)
@@ -35,7 +35,7 @@ def add_command(subparsers, name, func, help_text, **kwargs):
 def create_parser():
     """Create and return the argument parser with all commands configured."""
     parser = argparse.ArgumentParser(description="MongoDB experiment database tool")
-    
+
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
     # Filesystem-like commands
@@ -45,7 +45,7 @@ def create_parser():
         cli_pwd,
         "Show current path",
     )
-    
+
     add_command(
         subparsers,
         "cd",
@@ -53,7 +53,7 @@ def create_parser():
         "Change current directory",
         **{"path": {"help": "Path to change to (default: root)", "nargs": "?"}},
     )
-    
+
     add_command(
         subparsers,
         "ls",
@@ -69,7 +69,7 @@ def create_parser():
         "Create a new directory",
         **{"path": {"help": "Path to create"}},
     )
-    
+
     add_command(
         subparsers,
         "mv",
@@ -114,19 +114,36 @@ def create_parser():
 
 class InteractiveCompleter:
     """Tab completion for the interactive mode."""
-    
+
     def __init__(self):
-        self.commands = ['ls', 'cd', 'pwd', 'mkdir', 'rm', 'mv', 'edit', 'help', 'exit', 'quit']
-        self.path_commands = ['ls', 'cd', 'mkdir', 'rm', 'edit']  # Commands that take path arguments
-        self.two_path_commands = ['mv']  # Commands that take two path arguments
-        
+        self.commands = [
+            "ls",
+            "cd",
+            "pwd",
+            "mkdir",
+            "rm",
+            "mv",
+            "edit",
+            "help",
+            "exit",
+            "quit",
+        ]
+        self.path_commands = [
+            "ls",
+            "cd",
+            "mkdir",
+            "rm",
+            "edit",
+        ]  # Commands that take path arguments
+        self.two_path_commands = ["mv"]  # Commands that take two path arguments
+
     def complete(self, text, state):
         """Main completion function called by readline."""
         try:
             line = readline.get_line_buffer()
             begin = readline.get_begidx()
             end = readline.get_endidx()
-            
+
             # Parse the current line up to the cursor
             try:
                 # Try to parse the tokens, but handle incomplete quotes gracefully
@@ -134,24 +151,30 @@ class InteractiveCompleter:
             except ValueError:
                 # If shlex fails (e.g., unclosed quote), fall back to simple split
                 tokens = line[:begin].split()
-            
+
             current_token = line[begin:end]
-            
+
             # Determine what we're completing
             if not tokens:
                 # Completing command name
-                options = [cmd for cmd in self.commands if cmd.startswith(current_token)]
+                options = [
+                    cmd for cmd in self.commands if cmd.startswith(current_token)
+                ]
             else:
                 command = tokens[0]
                 if command in self.commands:
                     # Count non-flag arguments to determine position
-                    non_flag_tokens = [t for t in tokens[1:] if not t.startswith('-')]
+                    non_flag_tokens = [t for t in tokens[1:] if not t.startswith("-")]
                     arg_position = len(non_flag_tokens)
-                    
-                    if current_token.startswith('-'):
+
+                    if current_token.startswith("-"):
                         # Completing flags
-                        if command in ['rm', 'mv']:
-                            options = ['--dry-run'] if '--dry-run'.startswith(current_token) else []
+                        if command in ["rm", "mv"]:
+                            options = (
+                                ["--dry-run"]
+                                if "--dry-run".startswith(current_token)
+                                else []
+                            )
                         else:
                             options = []
                     elif command in self.two_path_commands:
@@ -174,25 +197,26 @@ class InteractiveCompleter:
                         options = []
                 else:
                     options = []
-            
+
             # Return the state-th option
             if state < len(options):
                 return options[state]
             else:
                 return None
-                
+
         except Exception:
             # Silently fail for completion errors
             return None
-    
+
     def _get_path_completions(self, prefix):
         """Get path completions using the existing completion system."""
         try:
             # Create a dummy parsed_args object
             class DummyArgs:
                 pass
+
             parsed_args = DummyArgs()
-            
+
             # Use the existing path completion function
             completions = get_path_completions(prefix, parsed_args)
             return completions or []
@@ -204,15 +228,16 @@ def setup_interactive_completion():
     """Set up tab completion for interactive mode."""
     completer = InteractiveCompleter()
     readline.set_completer(completer.complete)
-    
+
     # Configure readline for better completion behavior
-    readline.parse_and_bind('tab: complete')
-    readline.set_completer_delims(' \t\n`!@#$%^&*()=+[{]}\\|;:\'",<>?')
-    
+    readline.parse_and_bind("tab: complete")
+    readline.set_completer_delims(" \t\n`!@#$%^&*()=+[{]}\\|;:'\",<>?")
+
     # Enable history
     try:
         import atexit
         import os
+
         histfile = os.path.expanduser("~/.labdb_history")
         try:
             readline.read_history_file(histfile)
@@ -229,36 +254,36 @@ def setup_interactive_completion():
 def interactive_mode():
     """Run the interactive mode with labdb> prompt."""
     parser = create_parser()
-    
+
     # Set up tab completion
     setup_interactive_completion()
-    
+
     print("labdb interactive mode. Type 'help' for available commands, 'exit' to exit.")
-    
+
     while True:
         try:
             # Show current path in prompt with colors
             current_path = get_current_path()
             prompt = f"labdb {BLUE}{current_path}{RESET} > "
-            
+
             # Get user input
             try:
                 command_line = input(prompt).strip()
             except (EOFError, KeyboardInterrupt):
                 print(f"\n{RED}Exiting interactive mode...{RESET}")
                 break
-            
+
             # Skip empty lines
             if not command_line:
                 continue
-                
+
             # Handle exit commands
-            if command_line.lower() in ['exit', 'quit']:
+            if command_line.lower() in ["exit", "quit"]:
                 print(f"{RED}Exiting interactive mode...{RESET}")
                 break
-                
+
             # Handle help command
-            if command_line.lower() in ['help', '?']:
+            if command_line.lower() in ["help", "?"]:
                 print("Available commands:")
                 print("  ls [path]              - List contents of a path")
                 print("  cd [path]              - Change current directory")
@@ -270,7 +295,7 @@ def interactive_mode():
                 print("  help, ?                - Show this help message")
                 print("  exit, quit             - Exit interactive mode")
                 continue
-            
+
             # Parse the command line
             try:
                 # Use shlex to properly handle quoted arguments
@@ -278,7 +303,7 @@ def interactive_mode():
             except ValueError as e:
                 error(f"Error parsing command: {e}")
                 continue
-                
+
             # Parse arguments
             try:
                 args = parser.parse_args(args_list)
@@ -288,9 +313,9 @@ def interactive_mode():
             except Exception as e:
                 error(f"Error parsing arguments: {e}")
                 continue
-                
+
             # Execute the command if it has a function
-            if hasattr(args, 'func'):
+            if hasattr(args, "func"):
                 try:
                     args.func(args)
                 except SystemExit:
@@ -299,12 +324,12 @@ def interactive_mode():
                     pass
                 except Exception as e:
                     error(f"Error executing command: {e}")
-                    if os.getenv('DEBUG'):
+                    if os.getenv("DEBUG"):
                         traceback.print_exc()
             else:
                 error("Unknown command. Type 'help' for available commands.")
-                
+
         except Exception as e:
             error(f"Unexpected error: {e}")
-            if os.getenv('DEBUG'):
-                traceback.print_exc() 
+            if os.getenv("DEBUG"):
+                traceback.print_exc()

@@ -1,5 +1,4 @@
 import functools
-import json
 import os
 import sys
 import traceback
@@ -21,9 +20,7 @@ from labdb.utils import (
     date_to_relative_time,
     dict_str,
     get_path_name,
-    join_path,
     resolve_path,
-    split_path,
 )
 
 
@@ -95,7 +92,7 @@ def cli_setup(args):
         # Handle different property types
         if details.get("type") == "boolean":
             prompt += " (y/n)"
-            default_display = "y" if default_value == True else "n"
+            default_display = "y" if default_value else "n"
             input_val = get_input(prompt, default_display)
             new_config[prop] = input_val.lower() == "y"
         elif details.get("type") == "number":
@@ -121,7 +118,7 @@ def cli_setup(args):
 
     try:
         save_config(new_config)
-        db = Database(new_config)
+        _ = Database(new_config)
     except Exception as e:
         save_config(old_config)
         error("Configuration setup failed")
@@ -172,18 +169,20 @@ def cli_ls(args):
     if not items:
         info(f"No items in {path}")
         return
-        
+
     # Print header for the table
     max_width = os.get_terminal_size().columns
     path_display = path
     if len(path_display) > 20:
         path_display = "..." + path_display[-17:]
-    bold(f"{'Listing ' + path_display:<29} {'Created':<23} {'Notes':<{max_width - 30 - 24}}")
+    bold(
+        f"{'Listing ' + path_display:<29} {'Created':<23} {'Notes':<{max_width - 30 - 24}}"
+    )
     for item in items:
         item_name = get_path_name(item["path_str"])
         item_name += "/" if item["type"] == "directory" else ""
         print(
-            f"{item_name:<29} {date_to_relative_time(item['created_at']):<23} {(dict_str(item['notes']) if item['notes'] else '')[:max_width - 30 - 24]}"
+            f"{item_name:<29} {date_to_relative_time(item['created_at']):<23} {(dict_str(item['notes']) if item['notes'] else '')[: max_width - 30 - 24]}"
         )
 
 
@@ -217,7 +216,7 @@ def cli_rm(args):
         total_affected = affected_counts["experiments"] + affected_counts["directories"]
 
         if total_affected == 0:
-            error(f"No items affected")
+            error("No items affected")
             return
 
         # If in dry-run mode, just show the count and exit
@@ -230,7 +229,9 @@ def cli_rm(args):
         # Confirm with user before proceeding
         exp_text = f"{affected_counts['experiments']} experiment{'s' if affected_counts['experiments'] != 1 else ''}"
         dir_text = f"{affected_counts['directories']} director{'ies' if affected_counts['directories'] != 1 else 'y'}"
-        confirm_message = f'Deleting "{path}" will result in {exp_text} and {dir_text} being deleted'
+        confirm_message = (
+            f'Deleting "{path}" will result in {exp_text} and {dir_text} being deleted'
+        )
 
         error(confirm_message)
         confirmation = input("Proceed? (y/n): ").strip().lower()
@@ -262,22 +263,22 @@ def cli_mv(args):
         total_affected = affected_counts["experiments"] + affected_counts["directories"]
 
         if total_affected == 0:
-            error(f"No items affected")
+            error("No items affected")
             return
 
         # If in dry-run mode, just show the count and exit
         if hasattr(args, "dry_run") and args.dry_run:
             exp_text = f"{affected_counts['experiments']} experiment{'s' if affected_counts['experiments'] != 1 else ''}"
             dir_text = f"{affected_counts['directories']} director{'ies' if affected_counts['directories'] != 1 else 'y'}"
-            info(
-                f"Would move {exp_text} and {dir_text} from {src_path} to {dest_path}"
-            )
+            info(f"Would move {exp_text} and {dir_text} from {src_path} to {dest_path}")
             return
 
         # Confirm with user before proceeding
         exp_text = f"{affected_counts['experiments']} experiment{'s' if affected_counts['experiments'] != 1 else ''}"
         dir_text = f"{affected_counts['directories']} director{'ies' if affected_counts['directories'] != 1 else 'y'}"
-        confirm_message = f'Moving "{src_path}" to "{dest_path}" will move {exp_text} and {dir_text}'
+        confirm_message = (
+            f'Moving "{src_path}" to "{dest_path}" will move {exp_text} and {dir_text}'
+        )
 
         print(confirm_message)
         confirmation = input("Proceed? (y/n): ").strip().lower()

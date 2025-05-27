@@ -50,7 +50,9 @@ def date_to_relative_time(date):
         return date.strftime("%b %d, %Y at %I:%M %p").replace(" 0", " ")
 
 
-ALLOWED_PATH_CHARS = string.ascii_lowercase + string.ascii_uppercase + string.digits + ".-_/*"
+ALLOWED_PATH_CHARS = (
+    string.ascii_lowercase + string.ascii_uppercase + string.digits + ".-_/*"
+)
 
 
 def split_path(path: str):
@@ -101,7 +103,7 @@ def join_path(path_segments):
         # Validate path
         split_path(path_segments)
         return path_segments
-        
+
     if not all(isinstance(s, str) for s in path_segments):
         raise TypeError("All path segments must be strings")
     if any(not s for s in path_segments):  # Check for empty segments
@@ -127,7 +129,7 @@ def join_path(path_segments):
 def validate_path(path: str | list[str]):
     """
     Validate a path meets the formatting requirements.
-    
+
     Args:
         path: A string path or list of path segments
     """
@@ -136,15 +138,15 @@ def validate_path(path: str | list[str]):
         path_str = join_path(path)
     else:
         path_str = path
-        
-    # Validate by splitting and joining 
+
+    # Validate by splitting and joining
     segments = split_path(path_str)
     joined = join_path(segments)
-    
+
     # Check if the path is unchanged after normalize
     if joined != path_str:
         raise ValueError(f"Path failed validation: {path_str} -> {joined}")
-    
+
     # Check for wildcards
     if "*" in path_str and not path_str.endswith("/*"):
         raise ValueError(
@@ -170,10 +172,10 @@ def resolve_path(current_path: str, target_path: str) -> str:
     # Remove trailing slashes except for root path "/"
     if target_path.endswith("/") and target_path != "/":
         target_path = target_path.rstrip("/")
-    
+
     if current_path.endswith("/") and current_path != "/":
         current_path = current_path.rstrip("/")
-    
+
     # Handle absolute paths
     if target_path.startswith("/"):
         # Return the target path directly
@@ -186,16 +188,16 @@ def resolve_path(current_path: str, target_path: str) -> str:
 
     # For relative path, first get the current path segments
     current_segments = split_path(current_path)
-    
+
     # Split the target path for processing
     target_segments = [s for s in target_path.split("/") if s]
-    
+
     # Check for wildcards in target_segments (except as standalone at end)
     for i, segment in enumerate(target_segments):
         if "*" in segment:
             if i != len(target_segments) - 1 or segment != "*":
                 raise ValueError(
-                    f"Wildcard (*) can only be used as a standalone character at the end of a path"
+                    "Wildcard (*) can only be used as a standalone character at the end of a path"
                 )
 
     # Start with the current path for relative paths
@@ -223,17 +225,17 @@ def resolve_path(current_path: str, target_path: str) -> str:
 def is_parent_path(parent_path: str, child_path: str) -> bool:
     """
     Check if one path is a parent of another.
-    
+
     Args:
         parent_path: Potential parent path
         child_path: Potential child path
-        
+
     Returns:
         True if parent_path is a parent of child_path
     """
     if parent_path == "/":
         return child_path != "/"
-        
+
     parent_with_slash = parent_path if parent_path.endswith("/") else parent_path + "/"
     return child_path.startswith(parent_with_slash)
 
@@ -241,10 +243,10 @@ def is_parent_path(parent_path: str, child_path: str) -> bool:
 def get_path_name(path: str) -> str:
     """
     Get the name component of a path (last segment).
-    
+
     Args:
         path: A string path
-        
+
     Returns:
         The last segment of the path
     """
@@ -255,34 +257,34 @@ def get_path_name(path: str) -> str:
 def get_parent_path(path: str) -> str:
     """
     Get the parent path of the given path.
-    
+
     Args:
         path: A string path
-        
+
     Returns:
         The parent path as a string
     """
     if path == "/":
         return "/"
-        
+
     segments = split_path(path)
     if len(segments) <= 1:
         return "/"
-    
+
     return join_path(segments[:-1])
 
 
 def escape_regex_path(path: str) -> str:
     """
     Escape special regex characters in a path for safe use in regex patterns.
-    
+
     Args:
         path: A string path to escape
-        
+
     Returns:
         Escaped path safe for use in regex patterns
     """
-    special_chars = '.^$*+?()[]{}|\\-'
+    special_chars = ".^$*+?()[]{}|\\-"
     result = ""
     for char in path:
         if char in special_chars:

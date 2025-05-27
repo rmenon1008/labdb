@@ -1,20 +1,15 @@
 import json
-import os
 import sys
 
 import yaml
-from prompt_toolkit import PromptSession
 from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
-from prompt_toolkit.filters import is_done
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import HSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.layout import Layout
-from prompt_toolkit.layout.margins import NumberedMargin
 from prompt_toolkit.lexers import PygmentsLexer
 from prompt_toolkit.styles import Style
-from prompt_toolkit.validation import ValidationError, Validator
 from prompt_toolkit.widgets import TextArea
 from pygments.lexers.data import YamlLexer
 
@@ -65,7 +60,7 @@ def edit(json_data, title="JSON Editor", description=None):
             # Show validation error message at the bottom
             if hasattr(e, "problem_mark"):
                 mark = e.problem_mark
-                error_msg = f"Invalid syntax: {e.problem} at line {mark.line+1}, column {mark.column+1}"
+                error_msg = f"Invalid syntax: {e.problem} at line {mark.line + 1}, column {mark.column + 1}"
             else:
                 error_msg = f"Invalid syntax: {str(e)}"
             # Don't exit - just show the error
@@ -75,7 +70,7 @@ def edit(json_data, title="JSON Editor", description=None):
                 mark = e.problem_mark
                 # Calculate position in the buffer
                 lines = text.split("\n")
-                pos = sum(len(l) + 1 for l in lines[: mark.line]) + mark.column
+                pos = sum(len(line) + 1 for line in lines[: mark.line]) + mark.column
                 buffer.cursor_position = pos
 
     # Add Ctrl+C to cancel

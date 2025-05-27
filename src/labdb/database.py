@@ -9,8 +9,6 @@ from labdb.utils import (
     escape_regex_path,
     get_parent_path,
     get_path_name,
-    is_parent_path,
-    join_path,
     merge_mongo_queries,
     short_directory_id,
     short_experiment_id,
@@ -22,6 +20,7 @@ from labdb.utils import (
 __version__ = importlib.metadata.version("labdb")
 
 DEBUG = False
+
 
 class Database:
     def __init__(self, config: dict | None = None):
@@ -50,8 +49,10 @@ class Database:
         version = self.experiments.find_one({"_id": "version"})["version"]
 
         if version.split(".")[0] != __version__.split(".")[0]:
-            raise Exception(f"Version mismatch: database@{version} != labdb@{__version__} (up/downgrade labdb to continue, or select/create a different database)")\
-            
+            raise Exception(
+                f"Version mismatch: database@{version} != labdb@{__version__} (up/downgrade labdb to continue, or select/create a different database)"
+            )
+
     def __del__(self):
         if hasattr(self, "client") and self.client is not None:
             self.client.close()
@@ -59,7 +60,7 @@ class Database:
     def create_dir(self, path: str, notes: dict = {}):
         """
         Create a new directory at the specified path.
-        
+
         Args:
             path: The path to create (string)
             notes: Optional notes to associate with the directory
@@ -79,7 +80,7 @@ class Database:
 
         # Store path components for backward compatibility
         path_components = split_path(path)
-        
+
         self.directories.insert_one(
             {
                 "_id": short_directory_id(),
@@ -95,16 +96,16 @@ class Database:
     def path_exists(self, path: str):
         """
         Check if a path exists (either directory or experiment).
-        
+
         Args:
             path: The path to check (string)
-            
+
         Returns:
             True if the path exists
         """
         if path == "/":
             return True
-            
+
         return (
             self.directories.count_documents({"path_str": path}) > 0
             or self.experiments.count_documents({"path_str": path}) > 0
@@ -113,7 +114,7 @@ class Database:
     def ensure_path_exists(self, path: str):
         """
         Verify a path exists and raise an exception if it doesn't.
-        
+
         Args:
             path: The path to verify (string)
         """
@@ -123,25 +124,25 @@ class Database:
     def dir_exists(self, path: str):
         """
         Check if a directory exists at the given path.
-        
+
         Args:
             path: The directory path to check (string)
-            
+
         Returns:
             True if the directory exists
         """
         if path == "/":
             return True
-            
+
         return self.directories.count_documents({"path_str": path}) > 0
 
     def list_dir(self, path: str, only_project_paths: bool = False):
         """
         List all items in a directory.
-        
+
         Args:
             path: The directory path to list (string)
-            
+
         Returns:
             List of items (directories and experiments)
         """
@@ -150,10 +151,10 @@ class Database:
 
         # Make sure path ends with a slash for prefix matching
         parent_path = path if path.endswith("/") else path + "/"
-        
+
         # Escape special regex characters for safety
         escaped_parent_path = escape_regex_path(parent_path)
-        
+
         # Query for direct children using string path prefix
         # The regex matches paths that:
         # 1. Start with the parent path
@@ -164,7 +165,13 @@ class Database:
         if only_project_paths:
             projection = {"_id": 0, "type": 1, "path_str": 1, "created_at": 1}
         else:
-            projection = {"_id": 0, "type": 1, "path_str": 1, "created_at": 1, "notes": 1}
+            projection = {
+                "_id": 0,
+                "type": 1,
+                "path_str": 1,
+                "created_at": 1,
+                "notes": 1,
+            }
 
         # Combine results from both collections
         dir_results = list(
@@ -176,17 +183,26 @@ class Database:
 
         if DEBUG:
             import pprint
-            explain_dir = self.directories.find(base_query, projection).sort("created_at", 1).explain()
-            explain_exp = self.experiments.find(base_query, projection).sort("created_at", 1).explain()
+
+            explain_dir = (
+                self.directories.find(base_query, projection)
+                .sort("created_at", 1)
+                .explain()
+            )
+            explain_exp = (
+                self.experiments.find(base_query, projection)
+                .sort("created_at", 1)
+                .explain()
+            )
             pprint.pprint(explain_dir)
             pprint.pprint(explain_exp)
-        
+
         return dir_results + exp_results
 
     def update_dir_notes(self, path: str, notes: dict):
         """
         Update notes for a directory.
-        
+
         Args:
             path: The directory path (string)
             notes: The new notes to set
@@ -202,19 +218,19 @@ class Database:
     ):
         """
         Create a new experiment in the specified directory.
-        
+
         Args:
             path: The directory path to create the experiment in (string)
             name: Optional name for the experiment
             data: Initial experiment data
             notes: Experiment notes
-            
+
         Returns:
             The name/ID of the created experiment
         """
         if not self.dir_exists(path):
             raise Exception(f"Directory {path} does not exist")
-            
+
         # Generate or validate the experiment ID
         if name:
             experiment_path = f"{path}/{name}" if path != "/" else f"/{name}"
@@ -224,11 +240,13 @@ class Database:
         else:
             # Get next available sequential number as ID
             experiment_id = self.get_next_experiment_id(path)
-            experiment_path = f"{path}/{experiment_id}" if path != "/" else f"/{experiment_id}"
-        
+            experiment_path = (
+                f"{path}/{experiment_id}" if path != "/" else f"/{experiment_id}"
+            )
+
         # Store path components for backward compatibility
         path_components = split_path(experiment_path)
-        
+
         self.experiments.insert_one(
             {
                 "_id": short_experiment_id(),
@@ -245,7 +263,7 @@ class Database:
     def update_experiment_notes(self, path: str, notes: dict):
         """
         Update notes for an experiment.
-        
+
         Args:
             path: The experiment path (string)
             notes: The new notes to set
@@ -256,7 +274,7 @@ class Database:
     def add_experiment_data(self, path: str, key: str, value: any):
         """
         Add data to an experiment.
-        
+
         Args:
             path: The experiment path (string)
             key: The data key
@@ -270,7 +288,7 @@ class Database:
     def add_experiment_note(self, path: str, key: str, value: any):
         """
         Add a note to an experiment.
-        
+
         Args:
             path: The experiment path (string)
             key: The note key
@@ -280,94 +298,90 @@ class Database:
         self.experiments.update_one(
             {"path_str": path}, {"$set": {f"notes.{key}": value}}
         )
-    
 
     def count_experiments(self, path: str) -> int:
         """
         Count experiments in a directory.
-        
+
         Args:
             path: The directory path (string)
-            
+
         Returns:
             The number of experiments in the directory
         """
         # Make sure path ends with a slash for prefix matching
         parent_path = path if path.endswith("/") else path + "/"
-        
+
         # Escape special regex characters for safety
         escaped_parent_path = escape_regex_path(parent_path)
-        
+
         query = {"path_str": {"$regex": f"^{escaped_parent_path}[^/]+$"}}
         return self.experiments.count_documents(query)
 
     def get_next_experiment_id(self, path: str) -> str:
         """
         Get the next available sequential experiment ID for a directory.
-        
+
         Args:
             path: The directory path (string)
-            
+
         Returns:
             The next available experiment ID as a string
         """
         # Make sure path ends with a slash for prefix matching
         parent_path = path if path.endswith("/") else path + "/"
-        
+
         # Escape special regex characters for safety
         escaped_parent_path = escape_regex_path(parent_path)
-        
+
         # Use MongoDB aggregation to find the maximum numeric experiment ID
         pipeline = [
             # Match experiments in this directory
             {"$match": {"path_str": {"$regex": f"^{escaped_parent_path}[^/]+$"}}},
             # Add a field with just the experiment name
-            {"$addFields": {
-                "exp_name": {"$arrayElemAt": [{"$split": ["$path_str", "/"]}, -1]}
-            }},
+            {
+                "$addFields": {
+                    "exp_name": {"$arrayElemAt": [{"$split": ["$path_str", "/"]}, -1]}
+                }
+            },
             # Filter to only numeric experiment names and convert to int
             {"$match": {"exp_name": {"$regex": "^[0-9]+$"}}},
-            {"$addFields": {
-                "exp_id_num": {"$toInt": "$exp_name"}
-            }},
+            {"$addFields": {"exp_id_num": {"$toInt": "$exp_name"}}},
             # Group to find the maximum
-            {"$group": {
-                "_id": None,
-                "max_id": {"$max": "$exp_id_num"}
-            }}
+            {"$group": {"_id": None, "max_id": {"$max": "$exp_id_num"}}},
         ]
-        
+
         result = list(self.experiments.aggregate(pipeline))
-        
+
         # If no numeric experiments exist, start with 0
         if not result or result[0]["max_id"] is None:
             return "0"
-        
+
         # Return max + 1
         return str(result[0]["max_id"] + 1)
 
     def _build_path_prefix_query(self, path: str) -> dict:
         if path == "/":
             return {"path_str": {"$ne": None}}
-        
+
         prefix = path if path.endswith("/") else path + "/"
         end_prefix = prefix[:-1] + chr(ord(prefix[-1]) + 1)
-        
+
         return {
             "$or": [
                 {"path_str": path},
-                {"path_str": {"$gte": prefix, "$lt": end_prefix}}
+                {"path_str": {"$gte": prefix, "$lt": end_prefix}},
             ]
         }
 
     def _get_collection_counts(self, dir_query: dict, exp_query: dict) -> dict:
         """
         Get counts of directories and experiments matching given queries.
-        
+
         Args:
             dir_query: Query for directories collection
             exp_query: Query for experiments collection
-            
+
         Returns:
             Dict with counts of directories and experiments
         """
@@ -376,12 +390,10 @@ class Database:
             "experiments": self.experiments.count_documents(exp_query),
         }
 
-    def _update_paths(
-        self, collection, query: dict, src_path: str, dest_path: str
-    ):
+    def _update_paths(self, collection, query: dict, src_path: str, dest_path: str):
         """
         Update paths for all documents matching the query.
-        
+
         Args:
             collection: The MongoDB collection to update
             query: Query to match documents
@@ -391,23 +403,23 @@ class Database:
         for doc in collection.find(query, {"_id": 1, "path_str": 1}):
             # Calculate the new path by replacing the src_path prefix with dest_path
             new_path_str = doc["path_str"].replace(src_path, dest_path, 1)
-            
+
             # Also update the path array for backward compatibility
             new_path = split_path(new_path_str)
-            
+
             collection.update_one(
-                {"_id": doc["_id"]}, 
-                {"$set": {"path": new_path, "path_str": new_path_str}}
+                {"_id": doc["_id"]},
+                {"$set": {"path": new_path, "path_str": new_path_str}},
             )
 
     def delete(self, path: str, dry_run: bool = False):
         """
         Delete a path and all its children.
-        
+
         Args:
             path: The path to delete (string)
             dry_run: If True, only count affected items without deleting
-            
+
         Returns:
             Dict with counts of affected items if dry_run is True
         """
@@ -415,9 +427,7 @@ class Database:
         if path.endswith("/*"):
             # Ensure wildcard is only used at the end of the path
             if "*" in path[:-2]:
-                raise Exception(
-                    f"Wildcard (*) can only be used at the end of a path"
-                )
+                raise Exception("Wildcard (*) can only be used at the end of a path")
 
             dir_path = path[:-2]
             if not self.dir_exists(dir_path):
@@ -455,12 +465,12 @@ class Database:
     def move(self, src_path: str, dest_path: str, dry_run: bool = False):
         """
         Move a path and all its children to a new location.
-        
+
         Args:
             src_path: The source path to move (string)
             dest_path: The destination path to move to (string)
             dry_run: If True, only count affected items without moving
-            
+
         Returns:
             Dict with counts of affected items if dry_run is True
         """
@@ -471,15 +481,11 @@ class Database:
         if src_path.endswith("/*"):
             # Ensure wildcard is only used at the end of the path
             if "*" in src_path[:-2]:
-                raise Exception(
-                    f"Wildcard (*) can only be used at the end of a path"
-                )
+                raise Exception("Wildcard (*) can only be used at the end of a path")
 
             src_dir_path = src_path[:-2]
             if not self.dir_exists(src_dir_path):
-                raise Exception(
-                    f"Source directory {src_dir_path} does not exist"
-                )
+                raise Exception(f"Source directory {src_dir_path} does not exist")
 
             # Ensure destination is a directory
             if not self.dir_exists(dest_path):
@@ -495,10 +501,8 @@ class Database:
                     item_path = item["path_str"]
                     item_name = get_path_name(item_path)
                     dest_item_path = f"{dest_path}/{item_name}"
-                    
-                    item_counts = self.move(
-                        item_path, dest_item_path, dry_run=True
-                    )
+
+                    item_counts = self.move(item_path, dest_item_path, dry_run=True)
                     affected_counts["experiments"] += item_counts["experiments"]
                     affected_counts["directories"] += item_counts["directories"]
                 return affected_counts
@@ -507,7 +511,7 @@ class Database:
                     item_path = item["path_str"]
                     item_name = get_path_name(item_path)
                     dest_item_path = f"{dest_path}/{item_name}"
-                    
+
                     self.move(item_path, dest_item_path)
                 return None
 
@@ -533,7 +537,7 @@ class Database:
     ):
         """
         Get experiments at a path.
-        
+
         Args:
             path: The path to get experiments from (string)
             recursive: If True, include experiments in subdirectories
@@ -541,7 +545,7 @@ class Database:
             projection: Fields to include in the results
             sort: Sort specification
             limit: Maximum number of results
-            
+
         Returns:
             List of experiments
         """
@@ -551,8 +555,8 @@ class Database:
         exp = self.experiments.find_one({"path_str": path}, final_projection)
         if exp:
             # Only deserialize the data field
-            if 'data' in exp:
-                exp['data'] = deserialize(exp['data'], self.db)
+            if "data" in exp:
+                exp["data"] = deserialize(exp["data"], self.db)
             return [exp]
 
         if not self.dir_exists(path):
@@ -582,10 +586,10 @@ class Database:
         total = min(count, limit) if limit else count
         for i, exp in enumerate(cursor):
             if total > 1:
-                print(f"\rFetching experiments... {i+1}/{total}", end="", flush=True)
+                print(f"\rFetching experiments... {i + 1}/{total}", end="", flush=True)
             # Only deserialize the data field
-            if 'data' in exp:
-                exp['data'] = deserialize(exp['data'], self.db)
+            if "data" in exp:
+                exp["data"] = deserialize(exp["data"], self.db)
             result.append(exp)
         if total > 1:
             print()  # Add a newline after the status line

@@ -23,7 +23,7 @@ def add_command(subparsers, name, func, help_text, **kwargs):
     parser = subparsers.add_parser(name, help=help_text)
     for arg_name, arg_props in kwargs.items():
         # Add path completer to path arguments
-        if arg_name in ['path', 'src_path', 'dest_path']:
+        if arg_name in ["path", "src_path", "dest_path"]:
             parser.add_argument(arg_name, **arg_props).completer = get_path_completions
         else:
             parser.add_argument(arg_name, **arg_props)
@@ -33,16 +33,22 @@ def add_command(subparsers, name, func, help_text, **kwargs):
 
 def main():
     parser = argparse.ArgumentParser(description="MongoDB experiment database tool")
-    
+
     # Add global options
-    parser.add_argument("--config", action="store_true",
-                      help="Setup database connection and configuration")
-    parser.add_argument("--setup-completions", action="store_true", 
-                      help="Install tab completion for the current shell")
-    
+    parser.add_argument(
+        "--config",
+        action="store_true",
+        help="Setup database connection and configuration",
+    )
+    parser.add_argument(
+        "--setup-completions",
+        action="store_true",
+        help="Install tab completion for the current shell",
+    )
+
     # Add subcommands
     subparsers = parser.add_subparsers(dest="command", help="Commands")
-    
+
     # Add all the commands (reusing the same definitions as in create_parser)
     add_command(
         subparsers,
@@ -50,7 +56,7 @@ def main():
         cli_pwd,
         "Show current path",
     )
-    
+
     add_command(
         subparsers,
         "cd",
@@ -58,7 +64,7 @@ def main():
         "Change current directory",
         **{"path": {"help": "Path to change to (default: root)", "nargs": "?"}},
     )
-    
+
     add_command(
         subparsers,
         "ls",
@@ -74,7 +80,7 @@ def main():
         "Create a new directory",
         **{"path": {"help": "Path to create"}},
     )
-    
+
     add_command(
         subparsers,
         "mv",
@@ -116,24 +122,24 @@ def main():
 
     # Enable tab completion
     setup_completions(parser)
-    
+
     # If no arguments provided, check if it should enter interactive mode
     if len(sys.argv) == 1:
         interactive_mode()
         return
-        
+
     args = parser.parse_args()
-    
+
     # Handle --setup-completions option
     if hasattr(args, "setup_completions") and args.setup_completions:
         install_completions()
         return
-        
+
     # Handle --config option
     if args.config:
         cli_setup(args)
         return
-    
+
     # Handle case when no command is provided
     if not hasattr(args, "func"):
         parser.print_help()

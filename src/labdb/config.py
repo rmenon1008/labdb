@@ -114,12 +114,13 @@ def load_config(should_validate: bool = True):
     try:
         with open(CONFIG_FILE, "r") as f:
             config = json.load(f)
-            
+
             # Handle migration from array-based paths to string paths
             if "current_path" in config and isinstance(config["current_path"], list):
                 from labdb.utils import join_path
+
                 config["current_path"] = join_path(config["current_path"])
-            
+
             if should_validate:
                 validate(config, CONFIG_SCHEMA)
             return config
@@ -156,7 +157,7 @@ def save_config(config: dict):
                 "When using local file storage, you must specify a local_file_storage_path"
             )
 
-        if config.get("local_cache_enabled") == True:
+        if config.get("local_cache_enabled"):
             missing_cache_fields = []
             for field in ["local_cache_path", "local_cache_max_size_mb"]:
                 if field not in config:
@@ -199,15 +200,16 @@ def check_db(config: dict | None = None) -> None:
 def update_current_path(path: str):
     """
     Update the current path in the config file
-    
+
     Args:
         path: The new current path as a string
     """
     # Ensure path is a string
     if not isinstance(path, str):
         from labdb.utils import join_path
+
         path = join_path(path)
-        
+
     config = load_config() or {}
     config["current_path"] = path
     save_config(config)
@@ -216,22 +218,23 @@ def update_current_path(path: str):
 def get_current_path() -> str:
     """
     Get the current path from the config file
-    
+
     Returns:
         The current path as a string
     """
     config = load_config() or {}
-    
+
     # Handle migration from array paths
     if "current_path" not in config:
         return "/"
-    
+
     if isinstance(config["current_path"], list):
         # Convert from array to string
         from labdb.utils import join_path
+
         path = join_path(config["current_path"])
         # Update the config with the string path
         update_current_path(path)
         return path
-    
+
     return config.get("current_path", "/")

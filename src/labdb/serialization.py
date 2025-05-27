@@ -1,8 +1,7 @@
 import io
-import os
 import random
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict
 
 import numpy as np
 from bson.binary import Binary
@@ -37,7 +36,7 @@ def serialize_numpy_array(
 
     if DEBUG:
         print(
-            f"Serializing numpy array of shape {arr.shape}, dtype {arr.dtype}, size {len(data)/1024:.2f} KB"
+            f"Serializing numpy array of shape {arr.shape}, dtype {arr.dtype}, size {len(data) / 1024:.2f} KB"
         )
 
     # Check if the data exceeds 5MB
@@ -48,7 +47,7 @@ def serialize_numpy_array(
 
         if DEBUG:
             print(
-                f"Large array detected ({len(data)/1048576:.2f} MB), using storage type: {storage_type}"
+                f"Large array detected ({len(data) / 1048576:.2f} MB), using storage type: {storage_type}"
             )
 
         if storage_type == "none":
@@ -74,7 +73,7 @@ def serialize_numpy_array(
 
             if DEBUG:
                 print(
-                    f"Saved array to local file: {file_path} ({len(data)/1024:.2f} KB)"
+                    f"Saved array to local file: {file_path} ({len(data) / 1024:.2f} KB)"
                 )
 
             return {
@@ -94,7 +93,7 @@ def serialize_numpy_array(
 
             if DEBUG:
                 print(
-                    f"Saved array to GridFS with ID: {file_id} ({len(data)/1024:.2f} KB)"
+                    f"Saved array to GridFS with ID: {file_id} ({len(data) / 1024:.2f} KB)"
                 )
 
             # Add to cache if using GridFS
@@ -117,7 +116,7 @@ def serialize_numpy_array(
     else:
         # Use standard BSON Binary for smaller arrays
         if DEBUG:
-            print(f"Using BSON Binary storage for array ({len(data)/1024:.2f} KB)")
+            print(f"Using BSON Binary storage for array ({len(data) / 1024:.2f} KB)")
 
         return {
             "__numpy_array__": True,
@@ -153,7 +152,7 @@ def deserialize_numpy_array(data: Dict[str, Any], db: MongoClient = None) -> np.
             array_data = cached_data
             if DEBUG:
                 print(
-                    f"Loaded array from cache, file_id: {data['file_id']} ({len(array_data)/1024:.2f} KB)"
+                    f"Loaded array from cache, file_id: {data['file_id']} ({len(array_data) / 1024:.2f} KB)"
                 )
         else:
             # Retrieve from GridFS
@@ -163,7 +162,7 @@ def deserialize_numpy_array(data: Dict[str, Any], db: MongoClient = None) -> np.
 
             if DEBUG:
                 print(
-                    f"Loaded array from GridFS, file_id: {data['file_id']} ({len(array_data)/1024:.2f} KB)"
+                    f"Loaded array from GridFS, file_id: {data['file_id']} ({len(array_data) / 1024:.2f} KB)"
                 )
 
             # Save to cache
@@ -185,7 +184,7 @@ def deserialize_numpy_array(data: Dict[str, Any], db: MongoClient = None) -> np.
         if DEBUG:
             file_size = file_path.stat().st_size
             print(
-                f"Loading array from local file: {file_path} ({file_size/1024:.2f} KB)"
+                f"Loading array from local file: {file_path} ({file_size / 1024:.2f} KB)"
             )
 
         if is_compressed:
@@ -197,7 +196,7 @@ def deserialize_numpy_array(data: Dict[str, Any], db: MongoClient = None) -> np.
         array_data = data["data"]
 
         if DEBUG:
-            print(f"Loading array from BSON Binary ({len(array_data)/1024:.2f} KB)")
+            print(f"Loading array from BSON Binary ({len(array_data) / 1024:.2f} KB)")
 
         buffer = io.BytesIO(array_data)
         if is_compressed:
@@ -265,7 +264,7 @@ def cleanup_array_files(obj: Any, db: MongoClient = None) -> None:
                         if DEBUG:
                             file_size = file_path.stat().st_size
                             print(
-                                f"Deleting local array file: {file_path} ({file_size/1024:.2f} KB)"
+                                f"Deleting local array file: {file_path} ({file_size / 1024:.2f} KB)"
                             )
                         file_path.unlink()
                 except Exception:
@@ -297,7 +296,7 @@ def _save_to_cache(data: bytes, file_id: Any, config: dict):
         f.write(data)
 
     if DEBUG:
-        print(f"Saved array to cache: {cache_path} ({len(data)/1024:.2f} KB)")
+        print(f"Saved array to cache: {cache_path} ({len(data) / 1024:.2f} KB)")
 
     # Update metadata and manage cache size
     _manage_cache_size(config)
@@ -314,7 +313,7 @@ def _read_from_cache(file_id: Any, config: dict) -> bytes | None:
         cache_path.touch()
         data = cache_path.read_bytes()
         if DEBUG:
-            print(f"Read array from cache: {cache_path} ({len(data)/1024:.2f} KB)")
+            print(f"Read array from cache: {cache_path} ({len(data) / 1024:.2f} KB)")
         return data
     return None
 
@@ -336,7 +335,7 @@ def _manage_cache_size(config: dict):
     if total_size > max_size:
         if DEBUG:
             print(
-                f"Cache size ({total_size/1048576:.2f} MB) exceeds limit, using LRU-random eviction"
+                f"Cache size ({total_size / 1048576:.2f} MB) exceeds limit, using LRU-random eviction"
             )
 
         # Sort by access time (oldest first)
@@ -360,7 +359,7 @@ def _manage_cache_size(config: dict):
 
             if DEBUG:
                 print(
-                    f"Evicting randomly selected from 2 LRU candidates: {selected_file.name} ({file_size/1024:.2f} KB)"
+                    f"Evicting randomly selected from 2 LRU candidates: {selected_file.name} ({file_size / 1024:.2f} KB)"
                 )
 
             selected_file.unlink()
