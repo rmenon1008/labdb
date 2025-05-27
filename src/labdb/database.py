@@ -164,16 +164,16 @@ class Database:
 
         # Combine results from both collections
         dir_results = list(
-            self.directories.find(base_query, projection).sort("created_at", -1)
+            self.directories.find(base_query, projection).sort("created_at", 1)
         )
         exp_results = list(
-            self.experiments.find(base_query, projection).sort("created_at", -1)
+            self.experiments.find(base_query, projection).sort("created_at", 1)
         )
 
         if DEBUG:
             import pprint
-            explain_dir = self.directories.find(base_query, projection).sort("created_at", -1).explain()
-            explain_exp = self.experiments.find(base_query, projection).sort("created_at", -1).explain()
+            explain_dir = self.directories.find(base_query, projection).sort("created_at", 1).explain()
+            explain_exp = self.experiments.find(base_query, projection).sort("created_at", 1).explain()
             pprint.pprint(explain_dir)
             pprint.pprint(explain_exp)
         
