@@ -1,6 +1,7 @@
-import pytest
-import mongomock
 from unittest.mock import patch
+
+import mongomock
+import pytest
 
 from labdb.database import Database, __version__
 

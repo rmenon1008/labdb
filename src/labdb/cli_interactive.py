@@ -1,9 +1,8 @@
 import argparse
 import os
+import readline
 import shlex
 import traceback
-
-import readline
 
 from labdb.cli_commands import (
     cli_cd,
@@ -15,7 +14,7 @@ from labdb.cli_commands import (
     cli_rm,
 )
 from labdb.cli_completions import get_path_completions
-from labdb.cli_formatting import error, BLUE, RESET, RED
+from labdb.cli_formatting import BLUE, RED, RESET, error
 from labdb.config import get_current_path
 
 
