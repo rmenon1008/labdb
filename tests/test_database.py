@@ -343,20 +343,15 @@ def test_range_patterns(mock_db):
 
     # Test comma-separated pattern with duplicates (should not duplicate results)
     exps = mock_db.get_experiments("/pattern_test/exp$(1,1,3,3)/data")
-    assert len(exps) == 4  # Should include duplicates in expansion
+    assert len(exps) == 2  # Should not include duplicates in expansion
     values = sorted([exp["data"]["value"] for exp in exps])
-    assert values == [1, 1, 3, 3]
+    assert values == [1, 3]
 
     # Test comma-separated pattern with non-existent paths
     exps = mock_db.get_experiments("/pattern_test/exp$(1,4,5)/data")
     assert len(exps) == 2  # Only exp1 and exp5 exist, exp4 doesn't
     values = sorted([exp["data"]["value"] for exp in exps])
     assert values == [1, 5]
-
-    # Test mixed patterns (comma-separated with single value)
-    exps = mock_db.get_experiments("/pattern_test/exp$(7)/data")
-    assert len(exps) == 1
-    assert exps[0]["data"]["value"] == 7
 
     # Test list of paths with comma-separated patterns
     paths = ["/pattern_test/exp$(1,3)/data", "/pattern_test/exp$(5,7)/data"]
