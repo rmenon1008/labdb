@@ -4,7 +4,7 @@ from datetime import datetime
 from pymongo import MongoClient
 
 from labdb.config import load_config
-from labdb.serialization import cleanup_array_files, deserialize, serialize
+from labdb.serialization import cleanup_array_files, deserialize_obj, serialize_obj
 from labdb.utils import (
     escape_regex_path,
     get_parent_path,
@@ -254,7 +254,7 @@ class Database:
                 "path": path_components,
                 "path_str": experiment_path,
                 "created_at": datetime.now(),
-                "data": serialize(data, self.db),
+                "data": serialize_obj(data, self.db),
                 "notes": notes,
             }
         )
@@ -282,7 +282,7 @@ class Database:
         """
         self.ensure_path_exists(path)
         self.experiments.update_one(
-            {"path_str": path}, {"$set": {f"data.{key}": serialize(value, self.db)}}
+            {"path_str": path}, {"$set": {f"data.{key}": serialize_obj(value, self.db)}}
         )
 
     def add_experiment_note(self, path: str, key: str, value: any):
@@ -531,7 +531,7 @@ class Database:
 
         For example, if the path is "exp_$(1-3)/", the function will return
         ["exp_1/", "exp_2/", "exp_3/"].
-        
+
         If the path is "exp_$(1,3,5)/", the function will return
         ["exp_1/", "exp_3/", "exp_5/"].
 
@@ -552,13 +552,13 @@ class Database:
                     range_expr = path[start_idx + 2 : end_idx]
                     base_path = path[:start_idx]
                     suffix = path[end_idx + 1 :]
-                    
+
                     # Check for comma-separated values first
                     if "," in range_expr:
                         try:
                             # Parse comma-separated values
                             values = [int(val.strip()) for val in range_expr.split(",")]
-                            
+
                             # Generate paths for each value
                             for val in values:
                                 expanded_path = f"{base_path}{val}{suffix}"
@@ -575,7 +575,7 @@ class Database:
                         try:
                             # Parse range boundaries
                             start_val, end_val = map(int, range_expr.split("-"))
-                            
+
                             # Generate paths for each value in the range
                             for i in range(start_val, end_val + 1):
                                 expanded_path = f"{base_path}{i}{suffix}"
@@ -601,13 +601,14 @@ class Database:
         projection: dict = None,
         sort: list = None,
         limit: int = None,
+        deserialize: bool = True,
     ):
         """
         Get experiments at a path or list of paths.
 
         Args:
             path: The path(s) to get experiments from (string or list of strings)
-                  Supports range patterns like "exp_$(1-3)/" (range) or "exp_$(1,3,5)/" (comma-separated) 
+                  Supports range patterns like "exp_$(1-3)/" (range) or "exp_$(1,3,5)/" (comma-separated)
                   which expand to multiple paths
             recursive: If True, include experiments in subdirectories
             query: Additional query conditions
@@ -624,11 +625,11 @@ class Database:
         if isinstance(path, list):
             # Expand paths with range patterns
             expanded_paths = self._expand_paths(path)
-            
+
             # Build query to match any of the expanded paths
             path_query = {"path_str": {"$in": expanded_paths}}
             final_query = merge_mongo_queries(path_query, query)
-            
+
             count = self.experiments.count_documents(final_query)
             cursor = self.experiments.find(final_query, final_projection)
 
@@ -642,10 +643,13 @@ class Database:
             total = min(count, limit) if limit else count
             for i, exp in enumerate(cursor):
                 if total > 1:
-                    print(f"\rFetching experiments... {i + 1}/{total}", end="", flush=True)
+                    print(
+                        f"\rFetching experiments... {i + 1}/{total}", end="", flush=True
+                    )
                 # Only deserialize the data field
                 if "data" in exp:
-                    exp["data"] = deserialize(exp["data"], self.db)
+                    if deserialize:
+                        exp["data"] = deserialize_obj(exp["data"], self.db)
                 result.append(exp)
             if total > 1:
                 print()  # Add a newline after the status line
@@ -664,7 +668,8 @@ class Database:
         if exp:
             # Only deserialize the data field
             if "data" in exp:
-                exp["data"] = deserialize(exp["data"], self.db)
+                if deserialize:
+                    exp["data"] = deserialize_obj(exp["data"], self.db)
             return [exp]
 
         if not self.dir_exists(path):
@@ -697,7 +702,8 @@ class Database:
                 print(f"\rFetching experiments... {i + 1}/{total}", end="", flush=True)
             # Only deserialize the data field
             if "data" in exp:
-                exp["data"] = deserialize(exp["data"], self.db)
+                if deserialize:
+                    exp["data"] = deserialize_obj(exp["data"], self.db)
             result.append(exp)
         if total > 1:
             print()  # Add a newline after the status line

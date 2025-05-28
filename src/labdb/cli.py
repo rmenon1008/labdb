@@ -10,6 +10,7 @@ from labdb.cli_commands import (
     cli_pwd,
     cli_rm,
     cli_setup,
+    cli_show,
 )
 from labdb.cli_completions import (
     get_path_completions,
@@ -118,6 +119,14 @@ def main():
         cli_edit,
         "Edit notes for a path (directory or experiment)",
         **{"path": {"help": "Path to edit notes for"}},
+    )
+
+    add_command(
+        subparsers,
+        "show",
+        cli_show,
+        "Show detailed information about a path (directory or experiment)",
+        **{"path": {"help": "Path to show information for"}},
     )
 
     # Enable tab completion

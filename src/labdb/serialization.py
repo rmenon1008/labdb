@@ -222,23 +222,23 @@ def deserialize_numpy_array(data: Dict[str, Any], db: MongoClient = None) -> np.
     return arr
 
 
-def serialize(obj: Any, db: MongoClient, storage_type: str = None) -> Any:
+def serialize_obj(obj: Any, db: MongoClient, storage_type: str = None) -> Any:
     if isinstance(obj, np.ndarray):
         return serialize_numpy_array(obj, db, storage_type)
     elif isinstance(obj, dict):
-        return {k: serialize(v, db, storage_type) for k, v in obj.items()}
+        return {k: serialize_obj(v, db, storage_type) for k, v in obj.items()}
     elif isinstance(obj, (list, tuple)):
-        return [serialize(v, db, storage_type) for v in obj]
+        return [serialize_obj(v, db, storage_type) for v in obj]
     return obj
 
 
-def deserialize(obj: Any, db: MongoClient) -> Any:
+def deserialize_obj(obj: Any, db: MongoClient) -> Any:
     if isinstance(obj, dict):
         if obj.get("__numpy_array__"):
             return deserialize_numpy_array(obj, db)
-        return {k: deserialize(v, db) for k, v in obj.items()}
+        return {k: deserialize_obj(v, db) for k, v in obj.items()}
     elif isinstance(obj, (list, tuple)):
-        return [deserialize(v, db) for v in obj]
+        return [deserialize_obj(v, db) for v in obj]
     return obj
 
 

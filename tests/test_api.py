@@ -131,9 +131,6 @@ def test_normalize_path(mock_query):
             assert mock_query._normalize_path("subdir") == "/current/subdir"
 
 
-
-
-
 def test_get_experiments(mock_query, mock_db):
     """Test getting experiments by path"""
     # Create test data

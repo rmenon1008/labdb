@@ -12,6 +12,7 @@ from labdb.cli_commands import (
     cli_mv,
     cli_pwd,
     cli_rm,
+    cli_show,
 )
 from labdb.cli_completions import get_path_completions
 from labdb.cli_formatting import BLUE, RED, RESET, error
@@ -108,6 +109,14 @@ def create_parser():
         **{"path": {"help": "Path to edit notes for"}},
     )
 
+    add_command(
+        subparsers,
+        "show",
+        cli_show,
+        "Show detailed information about a path (directory or experiment)",
+        **{"path": {"help": "Path to show information for"}},
+    )
+
     return parser
 
 
@@ -123,6 +132,7 @@ class InteractiveCompleter:
             "rm",
             "mv",
             "edit",
+            "show",
             "help",
             "exit",
             "quit",
@@ -133,6 +143,7 @@ class InteractiveCompleter:
             "mkdir",
             "rm",
             "edit",
+            "show",
         ]  # Commands that take path arguments
         self.two_path_commands = ["mv"]  # Commands that take two path arguments
 
@@ -291,6 +302,9 @@ def interactive_mode():
                 print("  rm <path> [--dry-run]  - Remove a path (always recursive)")
                 print("  mv <src> <dest> [--dry-run] - Move a path to a new location")
                 print("  edit <path>            - Edit notes for a path")
+                print(
+                    "  show <path>            - Show detailed information about a path"
+                )
                 print("  help, ?                - Show this help message")
                 print("  exit, quit             - Exit interactive mode")
                 continue

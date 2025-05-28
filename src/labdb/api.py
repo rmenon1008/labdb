@@ -128,8 +128,6 @@ class ExperimentQuery:
             return get_current_path()
         return resolve_path(get_current_path(), path)
 
-
-
     def get_experiments(
         self,
         path: str | list[str] = None,
@@ -144,7 +142,7 @@ class ExperimentQuery:
 
         Args:
             path: Path(s) to query (string or list of path strings)
-                  Supports range patterns like "exp_$(1-3)/" (range) or "exp_$(1,3,5)/" (comma-separated) 
+                  Supports range patterns like "exp_$(1-3)/" (range) or "exp_$(1,3,5)/" (comma-separated)
                   which expand to multiple paths
             recursive: If True, includes experiments in subdirectories
             query: Additional MongoDB query to filter results
@@ -165,8 +163,6 @@ class ExperimentQuery:
             sort=sort,
             limit=limit,
         )
-
-
 
     def get_experiment(self, path: str):
         """
