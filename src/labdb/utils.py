@@ -348,3 +348,37 @@ def merge_mongo_queries(base_query: dict, additional_query: dict) -> dict:
 
 def dict_str(d: dict):
     return ", ".join([f"{key}: {value}" for key, value in d.items()])
+
+def best_effort_serialize(obj):
+    if isinstance(obj, dict):
+
+        if any("__numpy_array__" in str(key) for key in obj.keys()):
+            result = "[Numpy Array]"
+            return result
+
+        result = {}
+        for key, value in obj.items():
+            try:
+                # Try to serialize the value
+                result[key] = best_effort_serialize(value)
+            except (TypeError, ValueError):
+                # If serialization fails, use string representation
+                result[key] = str(type(value).__name__)
+        return result
+    elif isinstance(obj, list):
+        result = []
+        for item in obj:
+            try:
+                result.append(best_effort_serialize(item))
+            except (TypeError, ValueError):
+                result.append(str(type(item).__name__))
+        return result
+    else:
+        try:
+            # Try to serialize directly
+            import json
+            json.dumps(obj)
+            return obj
+        except (TypeError, ValueError):
+            # Return type name if not serializable
+            return str(type(obj).__name__)

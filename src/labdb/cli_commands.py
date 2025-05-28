@@ -18,6 +18,7 @@ from labdb.config import (
 )
 from labdb.database import Database
 from labdb.utils import (
+    best_effort_serialize,
     date_to_relative_time,
     dict_str,
     get_path_name,
@@ -585,7 +586,7 @@ def cli_show(args):
             notes = dir_doc.get("notes", {})
             if notes:
                 bold("Notes:")
-                print(json.dumps(notes, indent=2))
+                print(json.dumps(best_effort_serialize(notes), indent=2))
             else:
                 info("Notes: None")
         else:
@@ -605,7 +606,7 @@ def cli_show(args):
             notes = exp_doc.get("notes", {})
             if notes:
                 bold("Notes:")
-                print(json.dumps(notes, indent=2))
+                print(json.dumps(best_effort_serialize(notes), indent=2))
             else:
                 info("Notes: None")
 
@@ -613,7 +614,7 @@ def cli_show(args):
             data = exp_doc.get("data", {})
             if data:
                 bold("Data:")
-                print(json.dumps(data, indent=2))
+                print(json.dumps(best_effort_serialize(data), indent=2))
             else:
                 info("Data: None")
 
