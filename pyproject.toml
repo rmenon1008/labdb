@@ -21,7 +21,8 @@ dependencies = [
     "PyYAML~=6.0.2",
     "numpy>=1.26.1",
     "argcomplete>=3.2.3",
-    "pyreadline3>=3.4.1; sys_platform == 'win32'"
+    "pyreadline3>=3.4.1; sys_platform == 'win32'",
+    "lz4>=4.0.0"
 ]
 classifiers = [
     "Programming Language :: Python :: 3",

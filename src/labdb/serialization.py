@@ -3,6 +3,7 @@ import random
 from pathlib import Path
 from typing import Any, Dict
 
+import lz4.frame
 import numpy as np
 from bson.binary import Binary
 from gridfs import GridFS
@@ -25,18 +26,24 @@ def serialize_numpy_array(
 
     # Create a buffer to store the array
     buffer = io.BytesIO()
-    if compress:
-        np.savez_compressed(buffer, arr=arr)
-    else:
-        np.save(buffer, arr)
-
-    # Get the data
+    # Always save as uncompressed numpy first
+    np.save(buffer, arr)
     buffer.seek(0)
-    data = buffer.getvalue()
+    raw_data = buffer.getvalue()
+    
+    # Apply lz4 compression if enabled
+    if compress:
+        data = lz4.frame.compress(raw_data)
+    else:
+        data = raw_data
 
     if DEBUG:
+        compression_ratio = len(raw_data) / len(data) if compress else 1.0
         print(
-            f"Serializing numpy array of shape {arr.shape}, dtype {arr.dtype}, size {len(data) / 1024:.2f} KB"
+            f"Serializing numpy array of shape {arr.shape}, dtype {arr.dtype}, "
+            f"raw size {len(raw_data) / 1024:.2f} KB, "
+            f"compressed size {len(data) / 1024:.2f} KB "
+            f"(ratio: {compression_ratio:.2f}x)" if compress else f"size {len(data) / 1024:.2f} KB"
         )
 
     # Check if the data exceeds 5MB
@@ -64,7 +71,7 @@ def serialize_numpy_array(
             if not storage_path.exists():
                 storage_path.mkdir(parents=True, exist_ok=True)
 
-            file_name = f"numpy_array_{long_id()}.{'npz' if compress else 'npy'}"
+            file_name = f"numpy_array_{long_id()}.{'lz4' if compress else 'npy'}"
             file_path = storage_path / file_name
 
             # Write the data directly to file
@@ -88,7 +95,7 @@ def serialize_numpy_array(
             # Use GridFS for large arrays
             fs = GridFS(db)
             file_id = fs.put(
-                data, filename=f"numpy_array_{long_id()}.{'npz' if compress else 'npy'}"
+                data, filename=f"numpy_array_{long_id()}.{'lz4' if compress else 'npy'}"
             )
 
             if DEBUG:
@@ -172,7 +179,10 @@ def deserialize_numpy_array(data: Dict[str, Any], db: MongoClient = None) -> np.
         # Load array from the data
         buffer = io.BytesIO(array_data)
         if is_compressed:
-            arr = np.load(buffer)["arr"]
+            # Decompress with lz4 first, then load numpy array
+            decompressed_data = lz4.frame.decompress(array_data)
+            buffer = io.BytesIO(decompressed_data)
+            arr = np.load(buffer)
         else:
             arr = np.load(buffer)
     elif storage_type == "local":
@@ -188,7 +198,11 @@ def deserialize_numpy_array(data: Dict[str, Any], db: MongoClient = None) -> np.
             )
 
         if is_compressed:
-            arr = np.load(file_path)["arr"]
+            # Read compressed file and decompress with lz4
+            compressed_data = file_path.read_bytes()
+            decompressed_data = lz4.frame.decompress(compressed_data)
+            buffer = io.BytesIO(decompressed_data)
+            arr = np.load(buffer)
         else:
             arr = np.load(file_path)
     else:
@@ -200,7 +214,10 @@ def deserialize_numpy_array(data: Dict[str, Any], db: MongoClient = None) -> np.
 
         buffer = io.BytesIO(array_data)
         if is_compressed:
-            arr = np.load(buffer)["arr"]
+            # Decompress with lz4 first, then load numpy array
+            decompressed_data = lz4.frame.decompress(array_data)
+            buffer = io.BytesIO(decompressed_data)
+            arr = np.load(buffer)
         else:
             arr = np.load(buffer)
 
