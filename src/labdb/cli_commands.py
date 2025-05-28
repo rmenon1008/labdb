@@ -1,10 +1,9 @@
 import functools
-import json
 import os
 import sys
 import traceback
 
-from labdb.cli_formatting import bold, error, get_input, info, key_value, success
+from labdb.cli_formatting import bold, error, get_input, info, key_value, success, json_print
 from labdb.cli_json_editor import edit
 from labdb.config import (
     CONFIG_DEPENDENCIES,
@@ -183,7 +182,6 @@ def cli_ls(args):
         len("Created"),
     )
     key_value("Listing", path_display)
-    print()
     bold(
         f"{'Name':<{max_item_name_width + 2}} {'Created':<{max_date_width + 2}} {'Notes':<{max_width - max_item_name_width - max_date_width - 6}}"
     )
@@ -586,7 +584,7 @@ def cli_show(args):
             notes = dir_doc.get("notes", {})
             if notes:
                 bold("Notes:")
-                print(json.dumps(best_effort_serialize(notes), indent=2))
+                json_print(best_effort_serialize(notes))
             else:
                 info("Notes: None")
         else:
@@ -606,7 +604,7 @@ def cli_show(args):
             notes = exp_doc.get("notes", {})
             if notes:
                 bold("Notes:")
-                print(json.dumps(best_effort_serialize(notes), indent=2))
+                json_print(best_effort_serialize(notes))
             else:
                 info("Notes: None")
 
@@ -614,7 +612,7 @@ def cli_show(args):
             data = exp_doc.get("data", {})
             if data:
                 bold("Data:")
-                print(json.dumps(best_effort_serialize(data), indent=2))
+                json_print(best_effort_serialize(data))
             else:
                 info("Data: None")
 

@@ -1,4 +1,9 @@
 import os
+import json
+from pygments import highlight
+from pygments.formatters import TerminalFormatter
+from pygments.lexers import JsonLexer
+
 
 no_color = os.environ.get("NO_COLOR") or os.environ.get("NO_COLOR_LABDB")
 
@@ -41,3 +46,9 @@ def get_input(prompt_text, default=None):
         return user_input if user_input else default
     else:
         return input(f"{prompt_text}: ")
+
+def json_print(obj):
+    """Pretty print a JSON object with syntax highlighting"""
+
+    json_str = json.dumps(obj, indent=2)
+    print(highlight(json_str, JsonLexer(), TerminalFormatter()))
